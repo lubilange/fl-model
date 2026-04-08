@@ -9,7 +9,7 @@ import requests
 # =============================
 # CONFIGURATION
 # =============================
-FL_SERVER_HOST = "fl-model.onrender.com:443"  # Flower attend host:port
+FL_SERVER_URL = "https://fl-model.onrender.com"  # juste HTTP(S)
 WA_TRAINING_URL = "https://federatedlearning.onrender.com/training-data"
 
 CLIENT_ID = "hospital_1"
@@ -24,13 +24,11 @@ def fetch_training_data():
     resp.raise_for_status()
     data = resp.json()
 
-    dataset = data["data"]  # liste de dictionnaires
+    dataset = data.get("data", [])
     if not dataset:
         raise ValueError("Pas de données disponibles pour l'entraînement")
 
-    X_list = []
-    y_list = []
-
+    X_list, y_list = [], []
     for d in dataset:
         x = [
             d.get("Age", 0),
@@ -63,8 +61,7 @@ def train(msg: Message, context: Context):
 
     X, y = fetch_training_data()
     dataset = torch.utils.data.TensorDataset(X, y)
-    batch_size = context.run_config["batch-size"]
-    trainloader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=True)
+    trainloader = torch.utils.data.DataLoader(dataset, batch_size=context.run_config["batch-size"], shuffle=True)
 
     train_loss = train_fn(model, trainloader, context.run_config["local-epochs"], msg.content["config"]["lr"], device)
 
@@ -82,8 +79,7 @@ def evaluate(msg: Message, context: Context):
 
     X, y = fetch_training_data()
     dataset = torch.utils.data.TensorDataset(X, y)
-    batch_size = context.run_config["batch-size"]
-    valloader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=False)
+    valloader = torch.utils.data.DataLoader(dataset, batch_size=context.run_config["batch-size"], shuffle=False)
 
     eval_loss, eval_acc = test_fn(model, valloader, device)
 
@@ -95,11 +91,5 @@ def evaluate(msg: Message, context: Context):
 # LANCEMENT DU CLIENT
 # =============================
 if __name__ == "__main__":
-    from flwr.client import start_client
-
     print(f"Démarrage du client FL {CLIENT_ID}...")
-
-    start_client(
-        server_address=FL_SERVER_HOST,
-        client=app
-    )
+    app.run(FL_SERVER_URL)  # <- juste HTTPS, pas grpc://
