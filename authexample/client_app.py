@@ -4,10 +4,10 @@ from flwr.app import ArrayRecord, Context, Message, MetricRecord, RecordDict
 from flwr.clientapp import ClientApp
 from authexample.task import Net, train as train_fn, test as test_fn, update_last_train, should_retrain
 
-# URL du microservice WhatsApp qui renvoie les données du client
-WHATSAPP_SERVICE_URL = "https://federatedlearning.onrender.com/training-data"
+# URL du microservice WhatsApp (ton serveur FL doit être en ligne)
+WHATSAPP_SERVICE_URL = "https://fl-model.onrender.com/training-data"
 
-# Crée ClientApp
+# Crée le ClientApp Flower
 app = ClientApp()
 
 def fetch_client_data():
@@ -17,44 +17,44 @@ def fetch_client_data():
     json_data = resp.json()
     dataset = json_data["data"]
 
-    X = []
-    y = []
-
+    X, y = [], []
     for row in dataset:
-        # Exemple simple: convertir dict de features en vecteur
         features = [
             row.get("Age", 0),
-            row.get("RespiratoryRate") or 0,
-            row.get("O2Saturation") or 0,
-            row.get("PulseRate") or 0,
-            row.get("AdmissionGCS") or 0,
-            row.get("Creatinine") or 0,
+            row.get("RespiratoryRate", 0),
+            row.get("O2Saturation", 0),
+            row.get("PulseRate", 0),
+            row.get("AdmissionGCS", 0),
+            row.get("Creatinine", 0),
+            row.get("HasClinicalExaminationBeenCompleted", 0),
         ]
-        label = row.get("RequiredICUAdmission", 0)  # par ex
+        label = row.get("RequiredICUAdmission", 0)
         X.append(features)
         y.append(label)
 
-    return torch.tensor(X, dtype=torch.float32), torch.tensor(y, dtype=torch.float32)
+    return torch.tensor(X, dtype=torch.float32), torch.tensor(y, dtype=torch.int64)
 
 @app.train()
 def train(msg: Message, context: Context):
-    """Train le modèle sur les données du client WhatsApp."""
+    """Train le modèle sur les données locales du client."""
     model = Net()
     model.load_state_dict(msg.content["arrays"].to_torch_state_dict())
-    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model.to(device)
 
     X, y = fetch_client_data()
     trainloader = torch.utils.data.DataLoader(
-        torch.utils.data.TensorDataset(X, y), batch_size=context.run_config["batch-size"]
+        torch.utils.data.TensorDataset(X, y),
+        batch_size=context.run_config.get("batch-size", 16),
+        shuffle=True
     )
 
     if should_retrain():
         train_loss = train_fn(
             model,
             trainloader,
-            context.run_config["local-epochs"],
-            msg.content["config"]["lr"],
+            context.run_config.get("local-epochs", 1),
+            msg.content["config"].get("lr", 0.001),
             device
         )
         update_last_train()
@@ -62,24 +62,37 @@ def train(msg: Message, context: Context):
         train_loss = 0.0
 
     model_record = ArrayRecord(model.state_dict())
-    metrics = MetricRecord({"train_loss": train_loss, "num-examples": len(trainloader.dataset)})
+    metrics = MetricRecord({
+        "train_loss": train_loss,
+        "num-examples": len(trainloader.dataset)
+    })
     content = RecordDict({"arrays": model_record, "metrics": metrics})
     return Message(content=content, reply_to=msg)
 
 @app.evaluate()
 def evaluate(msg: Message, context: Context):
-    """Évalue le modèle sur les données locales WhatsApp."""
+    """Évalue le modèle sur les données locales du client."""
     model = Net()
     model.load_state_dict(msg.content["arrays"].to_torch_state_dict())
-    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model.to(device)
 
     X, y = fetch_client_data()
     valloader = torch.utils.data.DataLoader(
-        torch.utils.data.TensorDataset(X, y), batch_size=context.run_config["batch-size"]
+        torch.utils.data.TensorDataset(X, y),
+        batch_size=context.run_config.get("batch-size", 16)
     )
 
     eval_loss, eval_acc = test_fn(model, valloader, device)
-    metrics = MetricRecord({"eval_loss": eval_loss, "eval_acc": eval_acc, "num-examples": len(valloader.dataset)})
+    metrics = MetricRecord({
+        "eval_loss": eval_loss,
+        "eval_acc": eval_acc,
+        "num-examples": len(valloader.dataset)
+    })
     content = RecordDict({"metrics": metrics})
     return Message(content=content, reply_to=msg)
+
+if __name__ == "__main__":
+    # Démarre le client FL
+    print("Starting FL client...")
+    app.start()
