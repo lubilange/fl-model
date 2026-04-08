@@ -1,11 +1,12 @@
-"""authexample: A Flower server app ready for Render deployment."""
+# server_app_render.py
+"""Flower server app pour déploiement Render, compatible clients WhatsApp."""
 
 import os
 import torch
 from flwr.app import ArrayRecord, ConfigRecord, Context, MetricRecord
 from flwr.serverapp import Grid, ServerApp
 from flwr.serverapp.strategy import DifferentialPrivacyServerSideFixedClipping, FedAvg
-from authexample.task import Net, load_centralized_dataset, test
+from authexample.task import Net  # juste le modèle, pas de CSV
 
 # --- Récupérer le port dynamique pour Render ---
 PORT = int(os.environ.get("PORT", 8080))
@@ -23,7 +24,7 @@ app = ServerApp()
 
 @app.main()
 def main(grid: Grid, context: Context) -> None:
-    """Main entry point for the ServerApp."""
+    """Entrée principale du serveur Flower."""
 
     # Charger le modèle global
     global_model = Net()
@@ -55,19 +56,11 @@ def main(grid: Grid, context: Context) -> None:
     print("Model saved as final_model.pt")
 
 def global_evaluate(server_round: int, arrays: ArrayRecord) -> MetricRecord:
-    """Évaluer le modèle global sur le dataset centralisé."""
-    model = Net()
-    model.load_state_dict(arrays.to_torch_state_dict())
-    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-    model.to(device)
-
-    # Charger tout le dataset de test
-    test_dataloader = load_centralized_dataset()
-
-    # Evaluer le modèle global
-    test_loss, test_acc = test(model, test_dataloader, device)
-
-    return MetricRecord({"accuracy": test_acc, "loss": test_loss})
+    """
+    Évaluer le modèle global — sans dataset centralisé.
+    Pour production, le serveur n'a jamais accès aux données clients.
+    """
+    return MetricRecord({"accuracy": 0.0, "loss": 0.0})
 
 # --- Point d'entrée pour Render ---
 if __name__ == "__main__":
