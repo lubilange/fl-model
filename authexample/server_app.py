@@ -1,7 +1,8 @@
+# server_render.py
 import os
 import threading
 import torch
-from flask import Flask, request, send_file
+from flask import Flask, request, send_file, jsonify
 from flwr.app import ArrayRecord, ConfigRecord, Context, MetricRecord
 from flwr.serverapp import Grid, ServerApp
 from flwr.serverapp.strategy import DifferentialPrivacyServerSideFixedClipping, FedAvg
@@ -28,9 +29,7 @@ global_model = Net()
 @flwr_app.main()
 def main(grid: Grid, context: Context) -> None:
     arrays = ArrayRecord(global_model.state_dict())
-
     base_strategy = FedAvg(fraction_evaluate=FRACTION_EVALUATE)
-
     dp_strategy = DifferentialPrivacyServerSideFixedClipping(
         base_strategy,
         noise_multiplier=NOISE_MULTIPLIER,
@@ -38,7 +37,7 @@ def main(grid: Grid, context: Context) -> None:
         num_sampled_clients=NUM_SAMPLED_CLIENTS,
     )
 
-    result = dp_strategy.start(
+    dp_strategy.start(
         grid=grid,
         initial_arrays=arrays,
         train_config=ConfigRecord({"lr": LEARNING_RATE}),
@@ -46,51 +45,45 @@ def main(grid: Grid, context: Context) -> None:
         evaluate_fn=global_evaluate,
     )
 
-    torch.save(result.arrays.to_torch_state_dict(), "final_model.pt")
-
-
 def global_evaluate(server_round: int, arrays: ArrayRecord) -> MetricRecord:
     return MetricRecord({"accuracy": 0.0, "loss": 0.0})
 
-# --- Flask (pour Render) ---
+# --- Flask ---
 app = Flask(__name__)
 
 @app.route("/")
 def home():
     return "Flower server is running 🚀"
 
-# Endpoint pour que les clients téléchargent le modèle
 @app.route("/get_model", methods=["GET"])
 def get_model():
     buffer = io.BytesIO()
     torch.save(global_model.state_dict(), buffer)
     buffer.seek(0)
-    return send_file(buffer, download_name="global_model.pt")
+    return send_file(buffer, download_name="global_model.pt", as_attachment=True)
 
-# Endpoint pour que les clients envoient leurs poids
 @app.route("/submit_weights", methods=["POST"])
 def submit_weights():
-    if "weights" not in request.files:
-        return "No weights file provided", 400
-    file = request.files["weights"]
-    client_state = torch.load(file)
+    try:
+        if "weights" not in request.files:
+            return jsonify({"error": "No weights file provided"}), 400
+        file = request.files["weights"]
+        buffer = io.BytesIO(file.read())
+        client_state = torch.load(buffer, map_location=torch.device("cpu"))
 
-    # Moyenne simple (FedAvg)
-    with torch.no_grad():
-        for key in global_model.state_dict().keys():
-            global_model.state_dict()[key].copy_(0.5 * global_model.state_dict()[key] +
-                                                0.5 * client_state[key])
-    return "Weights received and merged!", 200
+        # Moyenne simple (FedAvg)
+        with torch.no_grad():
+            for key in global_model.state_dict().keys():
+                global_model.state_dict()[key].copy_(0.5 * global_model.state_dict()[key] +
+                                                    0.5 * client_state[key])
+        return jsonify({"message": "Weights received and merged!"}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 # --- Lancer Flower en parallèle ---
 def run_flower():
-    flwr_app.main()  # lance Flower
+    flwr_app.main()
 
 if __name__ == "__main__":
-    print(f"Starting services on port {PORT}...")
-
-    # Thread Flower
-    threading.Thread(target=run_flower).start()
-
-    # Serveur HTTP (obligatoire pour Render)
+    threading.Thread(target=run_flower, daemon=True).start()
     app.run(host="0.0.0.0", port=PORT)
