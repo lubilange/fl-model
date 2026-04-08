@@ -9,7 +9,7 @@ import requests
 # =============================
 # CONFIGURATION
 # =============================
-FL_SERVER_URL = "https://fl-model.onrender.com"
+FL_SERVER_HOST = "fl-model.onrender.com:443"  # Flower attend host:port
 WA_TRAINING_URL = "https://federatedlearning.onrender.com/training-data"
 
 CLIENT_ID = "hospital_1"
@@ -95,5 +95,11 @@ def evaluate(msg: Message, context: Context):
 # LANCEMENT DU CLIENT
 # =============================
 if __name__ == "__main__":
+    from flwr.client import start_client
+
     print(f"Démarrage du client FL {CLIENT_ID}...")
-    app.run(FL_SERVER_URL)
+
+    start_client(
+        server_address=FL_SERVER_HOST,
+        client=app
+    )
