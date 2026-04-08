@@ -4,7 +4,7 @@ import torch.nn.functional as F
 
 # --- Définition du modèle MLP ---
 class Net(nn.Module):
-    def __init__(self, input_dim=6, output_dim=2):  # 6 features venant de WhatsApp
+    def __init__(self, input_dim=7, output_dim=2):  
         super(Net, self).__init__()
         self.fc1 = nn.Linear(input_dim, 64)
         self.fc2 = nn.Linear(64, 32)
