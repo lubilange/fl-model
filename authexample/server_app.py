@@ -65,4 +65,5 @@ def global_evaluate(server_round: int, arrays: ArrayRecord) -> MetricRecord:
 # --- Point d'entrée pour Render ---
 if __name__ == "__main__":
     print(f"Starting Flower Server on port {PORT}...")
-    app.run(port=PORT)
+    # Flower va automatiquement écouter le port défini dans os.environ["PORT"]
+    app.run()
