@@ -1,12 +1,12 @@
 import os
 import threading
 import torch
-from flask import Flask
-
+from flask import Flask, request, send_file
 from flwr.app import ArrayRecord, ConfigRecord, Context, MetricRecord
 from flwr.serverapp import Grid, ServerApp
 from flwr.serverapp.strategy import DifferentialPrivacyServerSideFixedClipping, FedAvg
 from authexample.task import Net
+import io
 
 # --- PORT Render ---
 PORT = int(os.environ.get("PORT", 8080))
@@ -22,10 +22,11 @@ NUM_SAMPLED_CLIENTS = int(os.environ.get("NUM_SAMPLED_CLIENTS", 2))
 # --- Flower App ---
 flwr_app = ServerApp()
 
+# Modèle global accessible aux clients
+global_model = Net()
+
 @flwr_app.main()
 def main(grid: Grid, context: Context) -> None:
-
-    global_model = Net()
     arrays = ArrayRecord(global_model.state_dict())
 
     base_strategy = FedAvg(fraction_evaluate=FRACTION_EVALUATE)
@@ -51,7 +52,6 @@ def main(grid: Grid, context: Context) -> None:
 def global_evaluate(server_round: int, arrays: ArrayRecord) -> MetricRecord:
     return MetricRecord({"accuracy": 0.0, "loss": 0.0})
 
-
 # --- Flask (pour Render) ---
 app = Flask(__name__)
 
@@ -59,11 +59,32 @@ app = Flask(__name__)
 def home():
     return "Flower server is running 🚀"
 
+# Endpoint pour que les clients téléchargent le modèle
+@app.route("/get_model", methods=["GET"])
+def get_model():
+    buffer = io.BytesIO()
+    torch.save(global_model.state_dict(), buffer)
+    buffer.seek(0)
+    return send_file(buffer, download_name="global_model.pt")
+
+# Endpoint pour que les clients envoient leurs poids
+@app.route("/submit_weights", methods=["POST"])
+def submit_weights():
+    if "weights" not in request.files:
+        return "No weights file provided", 400
+    file = request.files["weights"]
+    client_state = torch.load(file)
+
+    # Moyenne simple (FedAvg)
+    with torch.no_grad():
+        for key in global_model.state_dict().keys():
+            global_model.state_dict()[key].copy_(0.5 * global_model.state_dict()[key] +
+                                                0.5 * client_state[key])
+    return "Weights received and merged!", 200
 
 # --- Lancer Flower en parallèle ---
 def run_flower():
     flwr_app.main()  # lance Flower
-
 
 if __name__ == "__main__":
     print(f"Starting services on port {PORT}...")
