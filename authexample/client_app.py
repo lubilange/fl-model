@@ -5,11 +5,12 @@ from flwr.app import ArrayRecord, Context, Message, MetricRecord, RecordDict
 from flwr.clientapp import ClientApp
 from authexample.task import Net, test as test_fn, train as train_fn
 import requests
+from flwr.client import start_client
 
 # =============================
 # CONFIGURATION
 # =============================
-FL_SERVER_URL = "https://fl-model.onrender.com"  # juste HTTP(S)
+FL_SERVER_GRPC = "fl-model.onrender.com:443"  # Adresse gRPC du serveur Flower
 WA_TRAINING_URL = "https://federatedlearning.onrender.com/training-data"
 
 CLIENT_ID = "hospital_1"
@@ -50,7 +51,7 @@ def fetch_training_data():
 # =============================
 # CLIENT APP
 # =============================
-app = ClientApp()
+app = ClientApp(client_name=CLIENT_ID, client_group=CLIENT_GROUP)
 
 @app.train()
 def train(msg: Message, context: Context):
@@ -63,7 +64,13 @@ def train(msg: Message, context: Context):
     dataset = torch.utils.data.TensorDataset(X, y)
     trainloader = torch.utils.data.DataLoader(dataset, batch_size=context.run_config["batch-size"], shuffle=True)
 
-    train_loss = train_fn(model, trainloader, context.run_config["local-epochs"], msg.content["config"]["lr"], device)
+    train_loss = train_fn(
+        model,
+        trainloader,
+        context.run_config["local-epochs"],
+        msg.content["config"]["lr"],
+        device
+    )
 
     model_record = ArrayRecord(model.state_dict())
     metrics = MetricRecord({"train_loss": train_loss, "num-examples": len(dataset)})
@@ -92,4 +99,8 @@ def evaluate(msg: Message, context: Context):
 # =============================
 if __name__ == "__main__":
     print(f"Démarrage du client FL {CLIENT_ID}...")
-    app.run(FL_SERVER_URL)  # <- juste HTTPS, pas grpc://
+    start_client(
+        server_address=FL_SERVER_GRPC,  # <-- doit être gRPC
+        client=app,
+        reconnect_timeout=30  # facultatif si serveur cloud
+    )
