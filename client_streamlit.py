@@ -104,7 +104,7 @@ if st.button("Envoyer les poids au serveur"):
 
             # --- Zero Trust : récupérer le token depuis une variable d'environnement ---
             import os
-            TOKEN = os.environ.get("FL_CLIENT_TOKEN", "token_par_defaut")
+            TOKEN = os.environ.get("FL_CLIENT_TOKEN", "SHARED_TOKEN")
             headers = {"Authorization": f"Bearer {TOKEN}"}
 
             # Envoyer la requête POST avec token
