@@ -46,13 +46,15 @@ def main(grid: Grid, context: Context) -> None:
     )
 
 def global_evaluate(server_round: int, arrays: ArrayRecord) -> MetricRecord:
+    # Placeholder, à remplacer par vraie évaluation si besoin
     return MetricRecord({"accuracy": 0.0, "loss": 0.0})
 
 # --- Flask ---
 app = Flask(__name__)
 
-# Récupérer le token serveur depuis variable d'environnement
-SERVER_TOKEN = os.environ.get("FL_SERVER_TOKEN", "token_par_defaut")
+# --- Tokens clients autorisés ---
+# Les tokens sont séparés par des virgules dans la variable d'environnement FL_CLIENT_TOKENS
+ALLOWED_TOKENS = set(os.environ.get("FL_CLIENT_TOKENS", "TOKEN_CLIENT_1,TOKEN_CLIENT_2").split(","))
 
 @app.route("/")
 def home():
@@ -70,7 +72,10 @@ def submit_weights():
     try:
         # --- Vérifier le token Zero Trust ---
         auth_header = request.headers.get("Authorization", "")
-        if not auth_header.startswith("Bearer ") or auth_header.split(" ")[1] != SERVER_TOKEN:
+        if not auth_header.startswith("Bearer "):
+            return jsonify({"error": "Unauthorized: Missing Bearer"}), 401
+        token = auth_header.split(" ")[1]
+        if token not in ALLOWED_TOKENS:
             return jsonify({"error": "Unauthorized: Invalid token"}), 401
 
         # --- Vérifier fichier poids ---
