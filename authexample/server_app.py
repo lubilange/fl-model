@@ -12,7 +12,7 @@ import io
 # --- PORT Render ---
 PORT = int(os.environ.get("PORT", 8080))
 
-# --- Config ---
+# --- Config Flower & DP ---
 FRACTION_EVALUATE = float(os.environ.get("FRACTION_EVALUATE", 0.5))
 NUM_SERVER_ROUNDS = int(os.environ.get("NUM_SERVER_ROUNDS", 10))
 LEARNING_RATE = float(os.environ.get("LEARNING_RATE", 0.001))
@@ -51,6 +51,9 @@ def global_evaluate(server_round: int, arrays: ArrayRecord) -> MetricRecord:
 # --- Flask ---
 app = Flask(__name__)
 
+# Récupérer le token serveur depuis variable d'environnement
+SERVER_TOKEN = os.environ.get("FL_SERVER_TOKEN", "token_par_defaut")
+
 @app.route("/")
 def home():
     return "Flower server is running 🚀"
@@ -65,13 +68,19 @@ def get_model():
 @app.route("/submit_weights", methods=["POST"])
 def submit_weights():
     try:
+        # --- Vérifier le token Zero Trust ---
+        auth_header = request.headers.get("Authorization", "")
+        if not auth_header.startswith("Bearer ") or auth_header.split(" ")[1] != SERVER_TOKEN:
+            return jsonify({"error": "Unauthorized: Invalid token"}), 401
+
+        # --- Vérifier fichier poids ---
         if "weights" not in request.files:
             return jsonify({"error": "No weights file provided"}), 400
         file = request.files["weights"]
         buffer = io.BytesIO(file.read())
         client_state = torch.load(buffer, map_location=torch.device("cpu"))
 
-        # Moyenne simple (FedAvg)
+        # --- Moyenne simple (FedAvg) ---
         with torch.no_grad():
             for key in global_model.state_dict().keys():
                 global_model.state_dict()[key].copy_(0.5 * global_model.state_dict()[key] +
