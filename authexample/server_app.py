@@ -68,27 +68,44 @@ def get_model():
 @app.route("/submit_weights", methods=["POST"])
 def submit_weights():
     try:
-        # --- Vérifier le token Zero Trust ---
+        # =========================
+        # 1. CHECK TOKEN (ZERO TRUST)
+        # =========================
         auth_header = request.headers.get("Authorization", "")
-        if not auth_header.startswith("Bearer "):
-            return jsonify({"error": "Unauthorized: Missing Bearer"}), 401
-        token = auth_header.split(" ")[1]
-        if token not in ALLOWED_TOKENS:
-            return jsonify({"error": "Unauthorized: Invalid token"}), 401
 
-        # --- Vérifier fichier poids ---
+        if not auth_header.startswith("Bearer "):
+            return jsonify({"error": "Missing Bearer token"}), 401
+
+        token = auth_header.split(" ")[1]
+
+        SERVER_TOKEN = os.environ.get("FL_CLIENT_TOKEN", "SHARED_TOKEN")
+
+        if token != SERVER_TOKEN:
+            return jsonify({"error": "Invalid token"}), 401
+
+        # =========================
+        # 2. CHECK FILE
+        # =========================
         if "weights" not in request.files:
             return jsonify({"error": "No weights file provided"}), 400
-        file = request.files["weights"]
-        buffer = io.BytesIO(file.read())
-        client_state = torch.load(buffer, map_location=torch.device("cpu"))
 
-        # --- Moyenne simple (FedAvg) ---
+        file = request.files["weights"]
+
+        buffer = io.BytesIO(file.read())
+        client_state = torch.load(buffer, map_location="cpu")
+
+        # =========================
+        # 3. FEDAVG SIMPLE MERGE
+        # =========================
         with torch.no_grad():
             for key in global_model.state_dict().keys():
-                global_model.state_dict()[key].copy_(0.5 * global_model.state_dict()[key] +
-                                                    0.5 * client_state[key])
+                global_model.state_dict()[key].copy_(
+                    0.5 * global_model.state_dict()[key] +
+                    0.5 * client_state[key]
+                )
+
         return jsonify({"message": "Weights received and merged!"}), 200
+
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
