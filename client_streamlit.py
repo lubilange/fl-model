@@ -18,6 +18,17 @@ if "model_loaded" not in st.session_state:
 if "trained" not in st.session_state:
     st.session_state["trained"] = False
 
+if "metrics" not in st.session_state:
+    st.session_state["metrics"] = {}
+
+
+# =========================
+# 📊 MENU DASHBOARD
+# =========================
+menu = st.sidebar.selectbox(
+    "📌 Navigation",
+    ["🏠 Entraînement", "📊 Dashboard", "🔬 Export & Recherche"]
+)
 
 # --- utils ---
 def create_dataloader_from_df(df, batch_size=32):
@@ -63,96 +74,147 @@ def test_fn(model, dataloader, device):
     return loss / len(dataloader), acc
 
 
-# --- upload dataset ---
-uploaded_file = st.file_uploader("Choisissez votre dataset CSV", type="csv")
+# =========================
+# 🏠 PAGE ENTRAÎNEMENT
+# =========================
+if menu == "🏠 Entraînement":
 
-if uploaded_file:
-    df = pd.read_csv(uploaded_file)
-    st.write("Aperçu du dataset :")
-    st.dataframe(df.head())
+    uploaded_file = st.file_uploader("Choisissez votre dataset CSV", type="csv")
 
-    batch_size = st.number_input("Batch size", 1, value=16)
-    epochs = st.number_input("Local epochs", 1, value=5)
-    lr = st.number_input("Learning rate", value=0.001, format="%.3f")
+    if uploaded_file:
+        df = pd.read_csv(uploaded_file)
+        st.write("Aperçu du dataset :")
+        st.dataframe(df.head())
 
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model = Net().to(device)
+        batch_size = st.number_input("Batch size", 1, value=16)
+        epochs = st.number_input("Local epochs", 1, value=5)
+        lr = st.number_input("Learning rate", value=0.001, format="%.3f")
 
-    dataloader = create_dataloader_from_df(df, batch_size)
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        model = Net().to(device)
 
-    # =========================
-    # 1️⃣ DOWNLOAD MODEL GLOBAL
-    # =========================
-    if st.button("📥 Télécharger le modèle global"):
-        try:
-            response = requests.get(f"{SERVER_URL}/get_model")
-            response.raise_for_status()
+        dataloader = create_dataloader_from_df(df, batch_size)
 
-            buffer = io.BytesIO(response.content)
-            global_state = torch.load(buffer, map_location=device)
-
-            model.load_state_dict(global_state)
-            st.session_state["model_state"] = global_state
-            st.session_state["model_loaded"] = True
-
-            st.success("Modèle global téléchargé avec succès !")
-
-        except Exception as e:
-            st.error(f"Erreur téléchargement : {e}")
-
-
-    # =========================
-    # 2️⃣ TRAIN LOCAL (BLOCKED)
-    # =========================
-    if st.button("🧠 Entraîner le modèle localement"):
-
-        if not st.session_state["model_loaded"]:
-            st.warning("⚠️ Télécharge d'abord le modèle global !")
-        else:
-            loss = train_fn(model, dataloader, epochs, lr, device)
-            test_loss, test_acc = test_fn(model, dataloader, device)
-
-            st.success(f"Entraînement terminé ! Loss: {loss:.4f}")
-            st.info(f"Accuracy: {test_acc:.4f}")
-
-            st.session_state["model_state"] = model.state_dict()
-            st.session_state["trained"] = True
-            st.write("Poids prêts pour envoi.")
-
-
-    # =========================
-    # 3️⃣ SEND WEIGHTS (BLOCKED)
-    # =========================
-    if st.button("📤 Envoyer les poids au serveur"):
-
-        if not st.session_state.get("trained", False):
-            st.error("⚠️ Tu dois d'abord entraîner le modèle !")
-        else:
+        # =========================
+        # DOWNLOAD MODEL GLOBAL
+        # =========================
+        if st.button("📥 Télécharger le modèle global"):
             try:
-                buffer = io.BytesIO()
-                torch.save(st.session_state["model_state"], buffer)
-                buffer.seek(0)
+                response = requests.get(f"{SERVER_URL}/get_model")
+                response.raise_for_status()
 
-                files = {"weights": ("client_weights.pt", buffer)}
+                buffer = io.BytesIO(response.content)
+                global_state = torch.load(buffer, map_location=device)
 
-                # TOKEN ZERO TRUST
-                TOKEN = os.environ.get("FL_CLIENT_TOKEN", "SHARED_TOKEN")
-                headers = {"Authorization": f"Bearer {TOKEN}"}
+                model.load_state_dict(global_state)
+                st.session_state["model_state"] = global_state
+                st.session_state["model_loaded"] = True
 
-                response = requests.post(
-                    f"{SERVER_URL}/submit_weights",
-                    files=files,
-                    headers=headers
-                )
-
-                try:
-                    data = response.json()
-                    if response.status_code == 200:
-                        st.success(data.get("message", "Poids envoyés avec succès !"))
-                    else:
-                        st.error(data.get("error", response.text))
-                except:
-                    st.success(response.text if response.status_code == 200 else response.text)
+                st.success("Modèle global téléchargé avec succès !")
 
             except Exception as e:
-                st.error(f"Erreur envoi : {e}")
+                st.error(f"Erreur téléchargement : {e}")
+
+        # =========================
+        # TRAIN LOCAL
+        # =========================
+        if st.button("🧠 Entraîner le modèle localement"):
+
+            if not st.session_state["model_loaded"]:
+                st.warning("⚠️ Télécharge d'abord le modèle global !")
+            else:
+                loss = train_fn(model, dataloader, epochs, lr, device)
+                test_loss, test_acc = test_fn(model, dataloader, device)
+
+                st.success(f"Entraînement terminé ! Loss: {loss:.4f}")
+                st.info(f"Accuracy: {test_acc:.4f}")
+
+                # 💾 stock metrics pour dashboard
+                st.session_state["metrics"] = {
+                    "loss": loss,
+                    "test_loss": test_loss,
+                    "accuracy": test_acc,
+                    "dataset_size": len(df)
+                }
+
+                st.session_state["model_state"] = model.state_dict()
+                st.session_state["trained"] = True
+
+                st.write("Poids prêts pour envoi.")
+
+        # =========================
+        # SEND WEIGHTS
+        # =========================
+        if st.button("📤 Envoyer les poids au serveur"):
+
+            if not st.session_state.get("trained", False):
+                st.error("⚠️ Tu dois d'abord entraîner le modèle !")
+            else:
+                try:
+                    buffer = io.BytesIO()
+                    torch.save(st.session_state["model_state"], buffer)
+                    buffer.seek(0)
+
+                    files = {"weights": ("client_weights.pt", buffer)}
+
+                    TOKEN = os.environ.get("FL_CLIENT_TOKEN", "SHARED_TOKEN")
+                    headers = {"Authorization": f"Bearer {TOKEN}"}
+
+                    response = requests.post(
+                        f"{SERVER_URL}/submit_weights",
+                        files=files,
+                        headers=headers
+                    )
+
+                    try:
+                        data = response.json()
+                        if response.status_code == 200:
+                            st.success(data.get("message", "Poids envoyés avec succès !"))
+                        else:
+                            st.error(data.get("error", response.text))
+                    except:
+                        st.success(response.text)
+
+                except Exception as e:
+                    st.error(f"Erreur envoi : {e}")
+
+
+# =========================
+# 📊 DASHBOARD
+# =========================
+elif menu == "📊 Dashboard":
+
+    st.subheader("📊 Dashboard Clinicien / Recherche")
+
+    metrics = st.session_state.get("metrics", {})
+
+    if not metrics:
+        st.warning("Aucune métrique disponible. Entraîne un modèle d'abord.")
+    else:
+        st.metric("Accuracy", f"{metrics.get('accuracy', 0):.4f}")
+        st.metric("Loss", f"{metrics.get('loss', 0):.4f}")
+        st.metric("Dataset size", metrics.get("dataset_size", 0))
+
+        st.success("Résumé de l'entraînement disponible.")
+
+# =========================
+# 🔬 EXPORT & RECHERCHE
+# =========================
+elif menu == "🔬 Export & Recherche":
+
+    st.subheader("🔬 Export anonymisé (WP4)")
+
+    if st.session_state.get("metrics"):
+        df_export = pd.DataFrame([st.session_state["metrics"]])
+
+        csv = df_export.to_csv(index=False).encode("utf-8")
+
+        st.download_button(
+            "⬇️ Télécharger export anonymisé",
+            csv,
+            "fl_metrics_export.csv",
+            "text/csv"
+        )
+
+    else:
+        st.info("Aucune donnée à exporter.")
