@@ -51,10 +51,8 @@ def global_evaluate(server_round: int, arrays: ArrayRecord) -> MetricRecord:
 
 # --- Flask ---
 app = Flask(__name__)
-
-# --- Tokens clients autorisés ---
-# Les tokens sont séparés par des virgules dans la variable d'environnement FL_CLIENT_TOKENS
-ALLOWED_TOKENS = set(os.environ.get("FL_CLIENT_TOKENS", "SHARED_TOKEN").split(","))
+# --- Token client autorisé (partagé pour tous les clients) ---
+ALLOWED_TOKEN = os.environ.get("FL_CLIENT_TOKEN", "SHARED_TOKEN")
 
 @app.route("/")
 def home():
