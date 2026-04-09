@@ -54,7 +54,7 @@ app = Flask(__name__)
 
 # --- Tokens clients autorisés ---
 # Les tokens sont séparés par des virgules dans la variable d'environnement FL_CLIENT_TOKENS
-ALLOWED_TOKENS = set(os.environ.get("FL_CLIENT_TOKENS", "TOKEN_CLIENT_1,TOKEN_CLIENT_2").split(","))
+ALLOWED_TOKENS = set(os.environ.get("FL_CLIENT_TOKENS", "SHARED_TOKEN").split(","))
 
 @app.route("/")
 def home():
