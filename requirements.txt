@@ -1,3 +1,5 @@
+supabase
+streamlit
 torch
 flwr
 pandas
@@ -5,8 +7,5 @@ numpy
 scikit-learn
 requests
 flask
-streamlit
 plotly
-supabase
 rich<14
-streamlit-supabase-auth-ui
