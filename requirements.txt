@@ -8,3 +8,4 @@ flask
 streamlit
 plotly
 supabase-py
+rich<14
