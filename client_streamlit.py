@@ -6,15 +6,30 @@ import io
 import os
 import random
 import plotly.graph_objects as go
+
+from supabase import create_client, Client
 from authexample.task import Net
 from torch.utils.data import DataLoader, TensorDataset
 
+# =========================
+# CONFIG
+# =========================
 st.set_page_config(page_title="WP4 FL Dashboard", layout="wide")
-
-st.title("🧠 Client FL - Upload Dataset et Envoi de Poids")
+st.title("🧠 Client FL + Dashboard Clinique (Supabase)")
 
 SERVER_URL = "https://fl-model.onrender.com"
 
+# =========================
+# 🔒 SUPABASE CONFIG SÉCURISÉ
+# =========================
+SUPABASE_URL = os.environ.get("SUPABASE_URL")
+SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
+
+if not SUPABASE_URL or not SUPABASE_KEY:
+    st.error("❌ Supabase non configuré. Ajoute les variables d'environnement.")
+    st.stop()
+
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 # =========================
 # SESSION STATE
@@ -31,7 +46,6 @@ if "metrics" not in st.session_state:
 if "history" not in st.session_state:
     st.session_state["history"] = []
 
-
 # =========================
 # MENU
 # =========================
@@ -40,9 +54,34 @@ menu = st.sidebar.selectbox(
     ["🏠 Entraînement", "📊 Dashboard WP4", "🔬 Export & Recherche"]
 )
 
+# =========================
+# SUPABASE FUNCTIONS
+# =========================
+def safe_fetch(table):
+    try:
+        data = supabase.table(table).select("*").execute().data
+        return data or []
+    except Exception as e:
+        st.error(f"Erreur chargement {table}: {e}")
+        return []
+
+def get_patients():
+    return safe_fetch("patients")
+
+def get_conditions():
+    return safe_fetch("conditions")
+
+def get_observations():
+    return safe_fetch("observations")
+
+def get_medications():
+    return safe_fetch("medications")
+
+def get_reminders():
+    return safe_fetch("reminders")
 
 # =========================
-# UTILS
+# ML UTILS
 # =========================
 def create_dataloader_from_df(df, batch_size=32):
     X = torch.tensor(df.iloc[:, :-1].values, dtype=torch.float32)
@@ -50,13 +89,12 @@ def create_dataloader_from_df(df, batch_size=32):
     dataset = TensorDataset(X, y)
     return DataLoader(dataset, batch_size=batch_size, shuffle=True)
 
-
 def train_fn(model, dataloader, epochs, lr, device):
     model.to(device)
     criterion = torch.nn.CrossEntropyLoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
-    model.train()
 
+    model.train()
     last_loss = 0
 
     for _ in range(epochs):
@@ -69,7 +107,6 @@ def train_fn(model, dataloader, epochs, lr, device):
             last_loss = float(loss)
 
     return last_loss
-
 
 def test_fn(model, dataloader, device):
     model.to(device)
@@ -86,12 +123,11 @@ def test_fn(model, dataloader, device):
             correct += (out.argmax(1) == y).sum().item()
             total += y.size(0)
 
-    acc = correct / total
+    acc = correct / total if total > 0 else 0
     return loss / len(dataloader), acc
 
-
 # =========================
-# 🏠 ENTRAÎNEMENT
+# 🏠 TRAINING
 # =========================
 if menu == "🏠 Entraînement":
 
@@ -117,30 +153,19 @@ if menu == "🏠 Entraînement":
 
         dataloader = create_dataloader_from_df(df, batch_size)
 
-        # =========================
-        # GLOBAL MODEL
-        # =========================
         if st.button("📥 Télécharger modèle global"):
             try:
                 response = requests.get(f"{SERVER_URL}/get_model")
-                response.raise_for_status()
-
                 buffer = io.BytesIO(response.content)
                 global_state = torch.load(buffer, map_location=device)
-
                 model.load_state_dict(global_state)
 
                 st.session_state["model_loaded"] = True
                 st.success("Modèle global chargé ✔")
-
             except Exception as e:
                 st.error(e)
 
-        # =========================
-        # TRAIN LOCAL
-        # =========================
         if st.button("🧠 Entraîner"):
-
             if not st.session_state["model_loaded"]:
                 st.warning("Télécharge le modèle global")
             else:
@@ -152,22 +177,16 @@ if menu == "🏠 Entraînement":
 
                 st.session_state["metrics"] = {
                     "loss": loss,
-                    "test_loss": test_loss,
                     "accuracy": acc,
                     "dataset_size": len(df)
                 }
 
                 st.session_state["history"].append(acc)
-
                 st.session_state["model_state"] = model.state_dict()
                 st.session_state["trained"] = True
 
-        # =========================
-        # SEND WEIGHTS
-        # =========================
         if st.button("📤 Envoyer poids"):
-
-            if not st.session_state.get("trained", False):
+            if not st.session_state.get("trained"):
                 st.error("Entraîne d'abord le modèle")
             else:
                 buffer = io.BytesIO()
@@ -175,9 +194,7 @@ if menu == "🏠 Entraînement":
                 buffer.seek(0)
 
                 files = {"weights": ("client_weights.pt", buffer)}
-
-                TOKEN = os.environ.get("FL_CLIENT_TOKEN", "SHARED_TOKEN")
-                headers = {"Authorization": f"Bearer {TOKEN}"}
+                headers = {"Authorization": "Bearer SHARED_TOKEN"}
 
                 response = requests.post(
                     f"{SERVER_URL}/submit_weights",
@@ -190,94 +207,79 @@ if menu == "🏠 Entraînement":
                 else:
                     st.error(response.text)
 
-
 # =========================
-# 📊 DASHBOARD WP4 (FINAL)
+# 📊 DASHBOARD
 # =========================
 elif menu == "📊 Dashboard WP4":
 
-    st.subheader("🏥 Dashboard Clinique & Recherche WP4")
+    st.subheader("🏥 Dashboard Clinique (Supabase)")
 
-    metrics = st.session_state.get("metrics", {})
+    patients = pd.DataFrame(get_patients())
+    conditions = pd.DataFrame(get_conditions())
+    observations = pd.DataFrame(get_observations())
+    medications = pd.DataFrame(get_medications())
 
-    if not metrics:
-        st.warning("Aucune donnée disponible")
+    c1, c2, c3, c4 = st.columns(4)
+
+    c1.metric("👥 Patients", len(patients))
+    c2.metric("⚠️ Conditions", len(conditions))
+    c3.metric("🧪 Observations", len(observations))
+    c4.metric("💊 Traitements", len(medications))
+
+    st.divider()
+
+    st.markdown("### 👥 Patients")
+    if not patients.empty:
+        st.dataframe(patients[["phone", "name", "gender", "birth_date"]])
     else:
+        st.info("Aucun patient")
 
-        # =========================
-        # KPI CLINIQUE
-        # =========================
-        c1, c2, c3, c4 = st.columns(4)
+    st.markdown("### ⚠️ Conditions")
+    if not conditions.empty:
+        st.bar_chart(conditions["label"].value_counts())
+    else:
+        st.info("Aucune condition")
 
-        c1.metric("🔥 Cas critiques", random.randint(1, 10))
-        c2.metric("📊 Accuracy", f"{metrics['accuracy']:.4f}")
-        c3.metric("⚠️ Loss", f"{metrics['loss']:.4f}")
-        c4.metric("📦 Patients", metrics["dataset_size"])
+    st.markdown("### 🧪 Symptômes")
+    if not observations.empty:
+        st.dataframe(observations[["patient_id", "text", "created_at"]])
+    else:
+        st.info("Aucune observation")
 
-        st.divider()
-
-        # =========================
-        # CAS CLINIQUES SIMULÉS (WP4 VALIDATION)
-        # =========================
-        st.markdown("### 🧪 Cas cliniques simulés")
-
-        sim_cases = pd.DataFrame([
-            {"patient": "Sim-1", "glycemie": 8.5, "risk": "Élevé"},
-            {"patient": "Sim-2", "glycemie": 5.2, "risk": "Faible"},
-            {"patient": "Sim-3", "glycemie": 7.8, "risk": "Moyen"},
-        ])
-
-        sim_cases["prediction_model"] = sim_cases["glycemie"].apply(
-            lambda x: "Élevé" if x > 7 else "Faible"
+    st.markdown("### 💊 Adhérence traitement")
+    if not medications.empty:
+        medications["adherence"] = medications.apply(
+            lambda x: x["confirmed_doses"] / x["total_doses"]
+            if x["total_doses"] > 0 else 0,
+            axis=1
         )
+        st.bar_chart(medications["adherence"])
+    else:
+        st.info("Aucun traitement")
 
-        st.dataframe(sim_cases)
+    st.markdown("### 🚨 Patients critiques")
+    if not conditions.empty:
+        critical = conditions[
+            conditions["label"].str.contains("tb|grave|critique", case=False, na=False)
+        ]
+        st.dataframe(critical)
+    else:
+        st.info("Aucune alerte")
 
-        st.success("Validation modèle terminée ✔")
-
-        # =========================
-        # COURBE GLYCÉMIE
-        # =========================
-        st.markdown("### 📊 Évolution clinique")
-
-        st.bar_chart(pd.DataFrame({
-            "glycemie": [5, 6, 8.5, 6, 7.9]
-        }))
-
-        # =========================
-        # COHORTE RECHERCHE
-        # =========================
-        st.markdown("### 🧪 Cohorte Recherche")
-
-        fig = go.Figure(data=[go.Pie(
-            labels=["Groupe A", "B", "Placebo"],
-            values=[1200, 800, 787],
-            hole=0.65
-        )])
-
-        st.plotly_chart(fig, use_container_width=True)
-
-        # =========================
-        # HISTORIQUE FL
-        # =========================
-        st.markdown("### 📈 Accuracy FL")
-
-        st.line_chart(pd.DataFrame({
-            "accuracy": st.session_state["history"]
-        }))
-
+    st.markdown("### 📈 Accuracy FL")
+    if st.session_state["history"]:
+        st.line_chart(pd.DataFrame({"accuracy": st.session_state["history"]}))
 
 # =========================
-# 🔬 EXPORT ANONYMISÉ
+# 🔬 EXPORT
 # =========================
 elif menu == "🔬 Export & Recherche":
 
-    st.subheader("🔬 Export anonymisé WP4")
+    st.subheader("🔬 Export anonymisé")
 
     metrics = st.session_state.get("metrics", {})
 
     if metrics:
-
         export = pd.DataFrame([{
             "id": "RECH_" + str(random.randint(1000, 9999)),
             "accuracy": metrics["accuracy"],
@@ -290,11 +292,10 @@ elif menu == "🔬 Export & Recherche":
         csv = export.to_csv(index=False).encode("utf-8")
 
         st.download_button(
-            "⬇️ Télécharger export",
+            "⬇️ Télécharger",
             csv,
-            "wp4_export.csv",
+            "export.csv",
             "text/csv"
         )
-
     else:
         st.info("Aucune donnée disponible")
