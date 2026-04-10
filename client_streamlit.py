@@ -22,8 +22,8 @@ SERVER_URL = "https://fl-model.onrender.com"
 # =========================
 # 🔒 SUPABASE CONFIG SÉCURISÉ
 # =========================
-SUPABASE_URL = os.environ.get("SUPABASE_URL")
-SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
+SUPABASE_URL = st.secrets["SUPABASE_URL"]
+SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
 
 if not SUPABASE_URL or not SUPABASE_KEY:
     st.error("❌ Supabase non configuré. Ajoute les variables d'environnement.")
