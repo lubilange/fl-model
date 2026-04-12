@@ -8,7 +8,7 @@ import random
 import plotly.graph_objects as go
 
 from supabase import create_client, Client
-from authexample.task import Net
+from authexample.task i
 from torch.utils.data import DataLoader, TensorDataset
 
 # =========================
@@ -250,24 +250,87 @@ elif menu == "📊 Dashboard Clinique WP4":
 
     st.dataframe(sim)
 
-    st.success("Validation clinique OK ✔")
 
 # =========================================================
 # 📈 RESEARCH DASHBOARD (BI)
 # =========================================================
 elif menu == "📈 Dashboard Recherche":
 
-    st.subheader("📊 BI & Research Analytics")
+    st.subheader("📊 BI & Research Analytics (REAL DATA)")
 
-    fig = go.Figure()
-    fig.add_trace(go.Pie(labels=["A", "B", "C"], values=[40, 30, 30]))
-    st.plotly_chart(fig, use_container_width=True)
+    # =========================
+    # 1. COHORTE PATIENTS
+    # =========================
+    st.markdown("### 👥 Cohorte patients")
 
-    st.markdown("### Cohorte simulation")
-    st.bar_chart(pd.DataFrame({
-        "group": [100, 80, 60]
-    }))
+    if not patients.empty:
+        gender_dist = patients["gender"].value_counts()
 
+        st.bar_chart(gender_dist)
+
+        st.write("Distribution sexe (cohorte réelle)")
+    else:
+        st.info("Aucun patient")
+
+    # =========================
+    # 2. RISQUE CLINIQUE (conditions backend)
+    # =========================
+    st.markdown("### 🚨 Répartition des risques")
+
+    if not conditions.empty:
+        risk_dist = conditions["severity"].value_counts()
+
+        fig = go.Figure()
+        fig.add_trace(go.Pie(
+            labels=risk_dist.index,
+            values=risk_dist.values
+        ))
+
+        st.plotly_chart(fig, use_container_width=True)
+    else:
+        st.info("Aucune condition")
+
+    # =========================
+    # 3. ADHÉRENCE RECHERCHE
+    # =========================
+    st.markdown("### 💊 Adhérence traitement (study cohort)")
+
+    if not adherence_logs.empty:
+        adherence_dist = adherence_logs["status"].value_counts()
+
+        st.bar_chart(adherence_dist)
+
+        adherence_rate = len(adherence_logs[adherence_logs["status"] == "taken"]) / len(adherence_logs)
+        st.metric("Adhérence globale", f"{adherence_rate:.2f}")
+    else:
+        st.info("Aucun log")
+
+    # =========================
+    # 4. PROGRESSION MALADIE (SYMPTÔMES)
+    # =========================
+    st.markdown("### 📈 Progression symptômes (research proxy)")
+
+    if not observations.empty:
+
+        progression = observations.groupby("patient_id").size().reset_index(name="symptom_count")
+
+        st.bar_chart(progression.set_index("patient_id"))
+
+        st.write("Nombre de symptômes par patient (proxy progression)")
+    else:
+        st.info("Aucune observation")
+
+    # =========================
+    # 5. NO-SHOW ANALYSIS
+    # =========================
+    st.markdown("### ⛔ No-show analysis")
+
+    if not adherence_logs.empty:
+        no_show_rate = len(adherence_logs[adherence_logs["status"] == "no_response"]) / len(adherence_logs)
+
+        st.metric("No-show rate", f"{no_show_rate:.2f}")
+    else:
+        st.info("Aucun data no-show")
 # =========================================================
 # 🔬 EXPORT ANONYMIZED
 # =========================================================
