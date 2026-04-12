@@ -212,64 +212,113 @@ if menu == "🏠 Entraînement":
 # =========================
 elif menu == "📊 Dashboard WP4":
 
-    st.subheader("🏥 Dashboard Clinique (Supabase)")
+    st.subheader("🏥 Clinical Dashboard (READ-ONLY)")
 
     patients = pd.DataFrame(get_patients())
     conditions = pd.DataFrame(get_conditions())
     observations = pd.DataFrame(get_observations())
-    medications = pd.DataFrame(get_medications())
+    treatments = pd.DataFrame(safe_fetch("treatments"))
+    adherence_logs = pd.DataFrame(safe_fetch("adherence_logs"))
+    nurses = pd.DataFrame(safe_fetch("nurses"))
 
+    # =========================
+    # KPI GLOBALS
+    # =========================
     c1, c2, c3, c4 = st.columns(4)
 
     c1.metric("👥 Patients", len(patients))
     c2.metric("⚠️ Conditions", len(conditions))
     c3.metric("🧪 Observations", len(observations))
-    c4.metric("💊 Traitements", len(medications))
+    c4.metric("💊 Treatments", len(treatments))
 
     st.divider()
 
+    # =========================
+    # PATIENTS
+    # =========================
     st.markdown("### 👥 Patients")
+
     if not patients.empty:
-        st.dataframe(patients[["phone", "name", "gender", "birth_date"]])
+        st.dataframe(patients[["phone", "name", "gender", "birth_date", "onboarded"]])
     else:
         st.info("Aucun patient")
 
-    st.markdown("### ⚠️ Conditions")
+    # =========================
+    # CONDITIONS (TRIAGE BACKEND ONLY)
+    # =========================
+    st.markdown("### 🚨 Triage clinique (backend engine)")
+
     if not conditions.empty:
-        st.bar_chart(conditions["label"].value_counts())
+        st.dataframe(
+            conditions[["patient_id", "label", "severity", "status", "created_at"]]
+        )
+
+        st.bar_chart(conditions["severity"].value_counts())
     else:
         st.info("Aucune condition")
 
-    st.markdown("### 🧪 Symptômes")
+    # =========================
+    # SYMPTÔMES (FHIR OBSERVATIONS)
+    # =========================
+    st.markdown("### 🧪 Observations (FHIR synced)")
+
     if not observations.empty:
-        st.dataframe(observations[["patient_id", "text", "created_at"]])
+        st.dataframe(
+            observations[["patient_id", "text", "severity", "created_at"]]
+        )
     else:
         st.info("Aucune observation")
 
-    st.markdown("### 💊 Adhérence traitement")
-    if not medications.empty:
-        medications["adherence"] = medications.apply(
-            lambda x: x["confirmed_doses"] / x["total_doses"]
-            if x["total_doses"] > 0 else 0,
-            axis=1
+    # =========================
+    # TREATMENTS
+    # =========================
+    st.markdown("### 💊 Traitements")
+
+    if not treatments.empty:
+        st.dataframe(
+            treatments[["patient_id", "text", "status", "created_at"]]
         )
-        st.bar_chart(medications["adherence"])
     else:
         st.info("Aucun traitement")
 
-    st.markdown("### 🚨 Patients critiques")
-    if not conditions.empty:
-        critical = conditions[
-            conditions["label"].str.contains("tb|grave|critique", case=False, na=False)
-        ]
-        st.dataframe(critical)
+    # =========================
+    # ADHERENCE (BACKEND LOGS ONLY)
+    # =========================
+    st.markdown("### 💊 Adhérence (logs backend)")
+
+    if not adherence_logs.empty:
+
+        taken = len(adherence_logs[adherence_logs["status"] == "taken"])
+        total = len(adherence_logs)
+
+        adherence_rate = taken / total if total > 0 else 0
+
+        st.metric("Adhérence globale", f"{adherence_rate:.2f}")
+
+        st.bar_chart(adherence_logs["status"].value_counts())
+
     else:
-        st.info("Aucune alerte")
+        st.info("Aucun log d’adhérence")
 
-    st.markdown("### 📈 Accuracy FL")
+    # =========================
+    # NURSES OPS
+    # =========================
+    st.markdown("### 👩‍⚕️ Équipe infirmière")
+
+    if not nurses.empty:
+        st.bar_chart(nurses["status"].value_counts())
+    else:
+        st.info("Aucune donnée infirmière")
+
+    # =========================
+    # FL HISTORY (OK)
+    # =========================
+    st.markdown("### 🧠 Federated Learning")
+
     if st.session_state["history"]:
-        st.line_chart(pd.DataFrame({"accuracy": st.session_state["history"]}))
-
+        st.line_chart(pd.DataFrame({
+            "accuracy": st.session_state["history"]
+        }))
 # =========================
 # 🔬 EXPORT
 # =========================
