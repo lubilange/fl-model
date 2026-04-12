@@ -269,7 +269,7 @@ elif menu == "📈 Dashboard Recherche":
 
         st.bar_chart(gender_dist)
 
-        st.write("Distribution sexe (cohorte réelle)")
+        st.write("Distribution patients par genre")
     else:
         st.info("Aucun patient")
 
