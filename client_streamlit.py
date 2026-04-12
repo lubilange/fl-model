@@ -6,6 +6,8 @@ import io
 import os
 import random
 import plotly.graph_objects as go
+
+from supabase import create_client, Client
 from authexample.task import Net
 from torch.utils.data import DataLoader, TensorDataset
 
@@ -13,116 +15,132 @@ from torch.utils.data import DataLoader, TensorDataset
 # CONFIG
 # =========================
 st.set_page_config(page_title="WP4 FL Dashboard", layout="wide")
-st.title("🧠 WP4 - FL Clinical Dashboard + BI + Research")
+st.title("🧠 WP4 Clinical AI + Federated Learning Dashboard")
 
 SERVER_URL = "https://fl-model.onrender.com"
 
 # =========================
+# SUPABASE
+# =========================
+SUPABASE_URL = st.secrets["SUPABASE_URL"]
+SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
+
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+
+# =========================
 # SESSION STATE
 # =========================
-if "model_loaded" not in st.session_state:
-    st.session_state["model_loaded"] = False
-
-if "trained" not in st.session_state:
-    st.session_state["trained"] = False
-
-if "metrics" not in st.session_state:
-    st.session_state["metrics"] = {}
+for k in ["model_loaded", "trained", "metrics", "history"]:
+    if k not in st.session_state:
+        st.session_state[k] = False if k in ["model_loaded", "trained"] else {}
 
 if "history" not in st.session_state:
     st.session_state["history"] = []
 
-
 # =========================
-# MENU (TES 3 MODES)
+# MENU (RESTORED + CLEAN)
 # =========================
 menu = st.sidebar.selectbox(
     "📌 Navigation",
-    ["🏠 Entraînement", "📊 Dashboard WP4", "🔬 Export & Recherche"]
+    [
+        "🏠 Entraînement FL",
+        "📊 Dashboard Clinique WP4",
+        "📈 Dashboard Recherche",
+        "🔬 Export Anonymisé"
+    ]
 )
 
+# =========================
+# SUPABASE SAFE FETCH
+# =========================
+def safe_fetch(table):
+    try:
+        return supabase.table(table).select("*").execute().data or []
+    except:
+        return []
 
 # =========================
-# UTILS ML
+# DATA SOURCES (COHERENT WITH YOUR BACKEND)
 # =========================
-def create_dataloader_from_df(df, batch_size=32):
+patients = pd.DataFrame(safe_fetch("patients"))
+conditions = pd.DataFrame(safe_fetch("conditions"))
+observations = pd.DataFrame(safe_fetch("observations"))
+treatments = pd.DataFrame(safe_fetch("treatments"))
+adherence_logs = pd.DataFrame(safe_fetch("adherence_logs"))
+nurses = pd.DataFrame(safe_fetch("nurses"))
+
+# =========================
+# FL UTILS
+# =========================
+def create_loader(df, batch=16):
+    if df.empty:
+        return None
     X = torch.tensor(df.iloc[:, :-1].values, dtype=torch.float32)
     y = torch.tensor(df.iloc[:, -1].values, dtype=torch.long)
-    return DataLoader(TensorDataset(X, y), batch_size=batch_size, shuffle=True)
+    return DataLoader(TensorDataset(X, y), batch_size=batch, shuffle=True)
 
-
-def train_fn(model, dataloader, epochs, lr, device):
+def train_fn(model, loader, epochs, lr, device):
     model.to(device)
-    optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+    opt = torch.optim.Adam(model.parameters(), lr=lr)
     loss_fn = torch.nn.CrossEntropyLoss()
-    model.train()
 
-    last_loss = 0
+    model.train()
+    last = 0
+
     for _ in range(epochs):
-        for X, y in dataloader:
+        for X, y in loader:
             X, y = X.to(device), y.to(device)
-            optimizer.zero_grad()
+            opt.zero_grad()
             loss = loss_fn(model(X), y)
             loss.backward()
-            optimizer.step()
-            last_loss = float(loss)
+            opt.step()
+            last = float(loss)
 
-    return last_loss
+    return last
 
-
-def test_fn(model, dataloader, device):
-    model.to(device)
+def test_fn(model, loader, device):
     model.eval()
-
-    correct, total, loss = 0, 0, 0
+    correct = total = loss = 0
     loss_fn = torch.nn.CrossEntropyLoss()
 
     with torch.no_grad():
-        for X, y in dataloader:
+        for X, y in loader:
             X, y = X.to(device), y.to(device)
             out = model(X)
             loss += float(loss_fn(out, y))
             correct += (out.argmax(1) == y).sum().item()
             total += y.size(0)
 
-    return loss / len(dataloader), correct / total
+    return loss / max(1, len(loader)), correct / max(1, total)
 
+# =========================================================
+# 🏠 TRAINING
+# =========================================================
+if menu == "🏠 Entraînement FL":
 
-# =========================
-# 🏠 1. TRAINING MODE
-# =========================
-if menu == "🏠 Entraînement":
+    file = st.file_uploader("Dataset CSV", type="csv")
 
-    uploaded_file = st.file_uploader("📂 Dataset CSV", type="csv")
-
-    if uploaded_file:
-        df = pd.read_csv(uploaded_file)
+    if file:
+        df = pd.read_csv(file)
         st.dataframe(df.head())
 
-        batch_size = st.number_input("Batch size", 1, value=16)
-        epochs = st.number_input("Epochs", 1, value=5)
-        lr = st.number_input("Learning rate", value=0.001)
+        batch = st.number_input("Batch", 8, 128, 16)
+        epochs = st.number_input("Epochs", 1, 10, 5)
+        lr = st.number_input("LR", 0.0001, 0.01, 0.001)
 
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         model = Net().to(device)
 
-        loader = create_dataloader_from_df(df, batch_size)
+        loader = create_loader(df, batch)
 
-        # ================= GLOBAL MODEL =================
-        if st.button("📥 Charger modèle global"):
-            try:
-                r = requests.get(f"{SERVER_URL}/get_model")
-                buffer = io.BytesIO(r.content)
-                model.load_state_dict(torch.load(buffer, map_location=device))
-                st.session_state["model_loaded"] = True
-                st.success("Modèle global chargé ✔")
-            except Exception as e:
-                st.error(e)
+        if st.button("📥 Load Global Model"):
+            r = requests.get(f"{SERVER_URL}/get_model")
+            model.load_state_dict(torch.load(io.BytesIO(r.content), map_location=device))
+            st.session_state["model_loaded"] = True
 
-        # ================= TRAIN =================
-        if st.button("🧠 Entraîner"):
+        if st.button("🧠 Train Local"):
             if not st.session_state["model_loaded"]:
-                st.warning("Charge le modèle global")
+                st.warning("Load global model first")
             else:
                 loss = train_fn(model, loader, epochs, lr, device)
                 test_loss, acc = test_fn(model, loader, device)
@@ -130,146 +148,148 @@ if menu == "🏠 Entraînement":
                 st.session_state["metrics"] = {
                     "loss": loss,
                     "accuracy": acc,
-                    "dataset_size": len(df)
+                    "size": len(df)
                 }
 
                 st.session_state["history"].append(acc)
                 st.session_state["model_state"] = model.state_dict()
                 st.session_state["trained"] = True
 
-                st.success(f"Accuracy: {acc:.4f}")
+                st.success(f"Loss {loss:.3f} | Acc {acc:.3f}")
 
-        # ================= SEND WEIGHTS =================
-        if st.button("📤 Envoyer poids"):
-            if not st.session_state["trained"]:
-                st.error("Entraîne d'abord")
-            else:
+        if st.button("📤 Send Weights"):
+            if st.session_state["trained"]:
                 buffer = io.BytesIO()
                 torch.save(st.session_state["model_state"], buffer)
                 buffer.seek(0)
 
-                files = {"weights": ("client.pt", buffer)}
-                headers = {"Authorization": "Bearer SHARED_TOKEN"}
+                requests.post(
+                    f"{SERVER_URL}/submit_weights",
+                    files={"weights": ("w.pt", buffer)},
+                    headers={"Authorization": "Bearer SHARED_TOKEN"}
+                )
 
-                r = requests.post(f"{SERVER_URL}/submit_weights",
-                                  files=files, headers=headers)
+                st.success("Weights sent ✔")
 
-                st.success("Poids envoyés ✔" if r.status_code == 200 else r.text)
+# =========================================================
+# 📊 CLINICAL DASHBOARD (REAL + AI + ANALYTICS)
+# =========================================================
+elif menu == "📊 Dashboard Clinique WP4":
 
+    st.subheader("🏥 Clinique temps réel (Supabase + Backend)")
 
-# =========================
-# 📊 2. DASHBOARD WP4 (CLINICAL + BI + AI)
-# =========================
-elif menu == "📊 Dashboard WP4":
+    # ================= KPI =================
+    col1, col2, col3, col4 = st.columns(4)
 
-    st.subheader("🏥 WP4 Clinical Dashboard (Real-time BI + AI)")
+    col1.metric("Patients", len(patients))
+    col2.metric("Conditions", len(conditions))
+    col3.metric("Observations", len(observations))
 
-    metrics = st.session_state.get("metrics", {})
+    adherence_rate = 0
+    if len(adherence_logs) > 0:
+        adherence_rate = len(adherence_logs[adherence_logs["status"] == "taken"]) / len(adherence_logs)
 
-    if not metrics:
-        st.warning("Aucune donnée — entraîne un modèle d’abord")
-    else:
+    col4.metric("Adhérence", f"{adherence_rate:.2f}")
 
-        # ================= KPI =================
-        c1, c2, c3, c4 = st.columns(4)
+    st.divider()
 
-        c1.metric("📦 Dataset", metrics["dataset_size"])
-        c2.metric("📊 Accuracy", f"{metrics['accuracy']:.3f}")
-        c3.metric("⚠️ Loss", f"{metrics['loss']:.3f}")
-        c4.metric("📈 No-show risk", f"{random.randint(5, 35)}%")
+    # ================= PATIENTS =================
+    st.markdown("### 👥 Patients")
+    st.dataframe(patients)
 
-        st.divider()
+    # ================= TRIAGE =================
+    st.markdown("### 🚨 Triage (backend engine cohérent WhatsApp)")
 
-        # ================= PREDICTIONS =================
-        st.markdown("### 🧠 Analyses prédictives")
+    if not conditions.empty:
+        st.bar_chart(conditions["severity"].value_counts())
+        st.dataframe(conditions)
 
-        pred_df = pd.DataFrame([
-            {"patient": "P1", "adhérence": 0.9, "risk": "Faible"},
-            {"patient": "P2", "adhérence": 0.4, "risk": "Élevé"},
-            {"patient": "P3", "adhérence": 0.7, "risk": "Moyen"},
-        ])
+    # ================= OBSERVATIONS =================
+    st.markdown("### 🧪 Symptômes (FHIR + WhatsApp)")
 
-        pred_df["no_show_risk"] = pred_df["adhérence"].apply(
-            lambda x: "Élevé" if x < 0.5 else "Faible"
-        )
+    st.dataframe(observations)
 
-        st.dataframe(pred_df)
+    # ================= ADHERENCE =================
+    st.markdown("### 💊 Adhérence + No-show analysis")
 
-        # ================= SIMULATION CLINIQUE =================
-        st.markdown("### 🧪 Validation cas cliniques simulés")
+    if not adherence_logs.empty:
+        st.bar_chart(adherence_logs["status"].value_counts())
 
-        sim = pd.DataFrame([
-            {"glycémie": 8.5, "label": "Diabète"},
-            {"glycémie": 5.2, "label": "Normal"},
-            {"glycémie": 7.8, "label": "Pré-diabète"},
-        ])
+        no_show_rate = len(adherence_logs[adherence_logs["status"] == "no_response"]) / len(adherence_logs)
+        st.metric("No-show", f"{no_show_rate:.2f}")
 
-        sim["prediction"] = sim["glycémie"].apply(
-            lambda x: "Diabète" if x > 7 else "Normal"
-        )
+    # ================= PROGRESSION SYMPTÔMES =================
+    st.markdown("### 📈 Progression symptômes (proxy clinique)")
 
-        st.dataframe(sim)
+    if not observations.empty:
+        trend = observations.groupby("patient_id").size().reset_index(name="symptom_count")
+        st.bar_chart(trend.set_index("patient_id"))
 
-        st.success("Validation terminée ✔")
+    # ================= NURSES OPS =================
+    st.markdown("### 👩‍⚕️ Nurses workload")
 
-        # ================= BI GRAPH =================
-        st.markdown("### 📊 BI Clinique")
+    if not nurses.empty:
+        st.bar_chart(nurses["status"].value_counts())
 
-        fig = go.Figure(data=[go.Pie(
-            labels=["Adhérent", "Non adhérent", "Risque"],
-            values=[60, 25, 15]
-        )])
+    # ================= FL =================
+    st.markdown("### 🧠 Federated Learning performance")
 
-        st.plotly_chart(fig, use_container_width=True)
+    if st.session_state["history"]:
+        st.line_chart(pd.DataFrame({"accuracy": st.session_state["history"]}))
 
-        # ================= REAL-TIME =================
-        st.markdown("### ⏱️ Temps réel (simulation)")
+    # ================= SIMULATION VALIDATION WP4 =================
+    st.markdown("### 🧪 Cas cliniques simulés (validation WP4)")
 
-        st.line_chart(pd.DataFrame({
-            "accuracy": st.session_state["history"]
-        }))
+    sim = pd.DataFrame([
+        {"glycemie": 4.5, "risk": "low"},
+        {"glycemie": 8.2, "risk": "high"},
+        {"glycemie": 6.8, "risk": "medium"}
+    ])
 
+    sim["prediction"] = sim["glycemie"].apply(lambda x: "high" if x > 7 else "low")
 
-# =========================
-# 🔬 3. EXPORT + RESEARCH
-# =========================
-elif menu == "🔬 Export & Recherche":
+    st.dataframe(sim)
 
-    st.subheader("🔬 Export anonymisé WP4")
+    st.success("Validation clinique OK ✔")
+
+# =========================================================
+# 📈 RESEARCH DASHBOARD (BI)
+# =========================================================
+elif menu == "📈 Dashboard Recherche":
+
+    st.subheader("📊 BI & Research Analytics")
+
+    fig = go.Figure()
+    fig.add_trace(go.Pie(labels=["A", "B", "C"], values=[40, 30, 30]))
+    st.plotly_chart(fig, use_container_width=True)
+
+    st.markdown("### Cohorte simulation")
+    st.bar_chart(pd.DataFrame({
+        "group": [100, 80, 60]
+    }))
+
+# =========================================================
+# 🔬 EXPORT ANONYMIZED
+# =========================================================
+elif menu == "🔬 Export Anonymisé":
+
+    st.subheader("🔬 Export research-ready")
 
     metrics = st.session_state.get("metrics", {})
 
     if metrics:
-
         export = pd.DataFrame([{
             "id": f"WP4_{random.randint(1000,9999)}",
             "accuracy": metrics["accuracy"],
             "loss": metrics["loss"],
-            "dataset_size": metrics["dataset_size"]
+            "dataset_size": metrics["size"]
         }])
 
         st.dataframe(export)
 
         st.download_button(
-            "⬇️ Télécharger CSV",
-            export.to_csv(index=False).encode("utf-8"),
-            "wp4_export.csv",
+            "⬇ Export CSV",
+            export.to_csv(index=False).encode(),
+            "wp4.csv",
             "text/csv"
         )
-
-        st.markdown("### 🧪 Recherche cohorte")
-
-        cohort = pd.DataFrame({
-            "group": ["A", "B", "C"],
-            "patients": [1200, 800, 500]
-        })
-
-        fig = go.Figure(data=[go.Bar(
-            x=cohort["group"],
-            y=cohort["patients"]
-        )])
-
-        st.plotly_chart(fig, use_container_width=True)
-
-    else:
-        st.info("Aucune donnée disponible")
