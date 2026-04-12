@@ -8,7 +8,8 @@ import random
 import plotly.graph_objects as go
 
 from supabase import create_client, Client
-from authexample.task i
+
+from authexample.task import Net
 from torch.utils.data import DataLoader, TensorDataset
 
 # =========================
