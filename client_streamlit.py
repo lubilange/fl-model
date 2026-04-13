@@ -31,9 +31,14 @@ supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 # =========================
 # SESSION STATE
 # =========================
-for k in ["model_loaded", "trained", "metrics", "history"]:
-    if k not in st.session_state:
-        st.session_state[k] = False if k in ["model_loaded", "trained"] else {}
+if "model_loaded" not in st.session_state:
+    st.session_state["model_loaded"] = False
+
+if "trained" not in st.session_state:
+    st.session_state["trained"] = False
+
+if "metrics" not in st.session_state:
+    st.session_state["metrics"] = {}
 
 if "history" not in st.session_state:
     st.session_state["history"] = []
