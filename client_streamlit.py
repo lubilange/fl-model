@@ -183,8 +183,8 @@ elif menu == "📊 Dashboard Clinique":
     col1, col2, col3, col4 = st.columns(4)
 
     col1.metric("👥 Patients", len(patients))
-    col2.metric("🧾 Infos santé", len(conditions))
-    col3.metric("🩺 Activités", len(observations))
+    col2.metric("🧾 Infos santé(Conditions FHIR)", len(conditions))
+    col3.metric("🩺 Nombres Symptômes(Observations FHIR)", len(observations))
 
     adherence_rate = 0
     if len(adherence_logs) > 0:
@@ -208,7 +208,7 @@ elif menu == "📊 Dashboard Clinique":
         if "patient_id" in patients_view.columns:
             patients_view = patients_view.drop(columns=["patient_id"])
 
-        st.write("✔️ Données disponibles (export possible ci-dessous)")
+        st.write("Données disponibles (export possible ci-dessous)")
 
         st.download_button(
             "⬇️ Télécharger les patients",
@@ -235,27 +235,28 @@ elif menu == "📊 Dashboard Clinique":
     st.divider()
 
     # ================= SYMPTÔMES =================
-    st.markdown("### 🩺 Suivi des symptômes")
+  st.markdown("### 🩺 Suivi des symptômes")
 
-    if not observations.empty:
+if not observations.empty:
 
-        obs_view = observations.copy()
+    obs_view = observations.copy()
 
-        if "patient_id" in obs_view.columns and "phone" in patients.columns:
-            obs_view = obs_view.merge(
-                patients[["patient_id", "phone"]],
-                on="patient_id",
-                how="left"
-            )
-            obs_view = obs_view.drop(columns=["patient_id"])
-            obs_view = obs_view.rename(columns={"phone": "📱 Téléphone"})
+    # ================= GARDER UNIQUEMENT SEVERITY =================
+    if "severity" in obs_view.columns:
+        obs_view = obs_view[["severity"]]
+    else:
+        obs_view = pd.DataFrame({"severity": []})
 
-        st.download_button(
-            "⬇️ Télécharger les symptômes",
-            obs_view.to_csv(index=False).encode("utf-8"),
-            "symptomes.csv",
-            "text/csv"
-        )
+    # ================= NETTOYAGE =================
+    obs_view["severity"] = obs_view["severity"].fillna("unknown")
+
+    # ================= DOWNLOAD =================
+    st.download_button(
+        "⬇️ Télécharger les symptômes",
+        obs_view.to_csv(index=False).encode("utf-8"),
+        "symptomes.csv",
+        "text/csv"
+    )
 
     st.divider()
 
