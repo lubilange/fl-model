@@ -16,7 +16,7 @@ from torch.utils.data import DataLoader, TensorDataset
 # CONFIG
 # =========================
 st.set_page_config(page_title="WP4 FL Dashboard", layout="wide")
-st.title("Dashboard Clinique + Federated Learning ")
+st.title("Dashboard + Federated Learning ")
 
 SERVER_URL = "https://fl-model.onrender.com"
 
@@ -117,7 +117,7 @@ def test_fn(model, loader, device):
 # =========================================================
 # 🏠 TRAINING
 # =========================================================
-if menu == "🏠 Entraînement FL":
+if menu == "Entraînement FL":
 
     file = st.file_uploader("Dataset CSV", type="csv")
 
@@ -134,12 +134,12 @@ if menu == "🏠 Entraînement FL":
 
         loader = create_loader(df, batch)
 
-        if st.button("Load Global Model"):
+        if st.button("Télécharger le modèle global"):
             r = requests.get(f"{SERVER_URL}/get_model")
             model.load_state_dict(torch.load(io.BytesIO(r.content), map_location=device))
             st.session_state["model_loaded"] = True
 
-        if st.button("Train Local"):
+        if st.button("Entrainement local"):
             if not st.session_state["model_loaded"]:
                 st.warning("Load global model first")
             else:
@@ -158,7 +158,7 @@ if menu == "🏠 Entraînement FL":
 
                 st.success(f"Loss {loss:.3f} | Acc {acc:.3f}")
 
-        if st.button("Send Weights"):
+        if st.button("Envoyer le poids"):
             if st.session_state["trained"]:
                 buffer = io.BytesIO()
                 torch.save(st.session_state["model_state"], buffer)
@@ -242,12 +242,12 @@ elif menu == "Dashboard Clinique":
 # =========================================================
 elif menu == "Dashboard Recherche":
 
-    st.subheader("📊 BI & Research Analytics (REAL DATA)")
+    st.subheader("Graphique pour Recherche Analytique")
 
     # =========================
     # 1. COHORTE PATIENTS
     # =========================
-    st.markdown("### 👥 Cohorte patients")
+    st.markdown("### Répartition patients")
 
     if not patients.empty:
         gender_dist = patients["gender"].value_counts()
@@ -261,7 +261,7 @@ elif menu == "Dashboard Recherche":
     # =========================
     # 2. RISQUE CLINIQUE (conditions backend)
     # =========================
-    st.markdown("### 🚨 Répartition des risques")
+    st.markdown("###  Répartition des risques")
 
     if not conditions.empty:
         risk_dist = conditions["severity"].value_counts()
@@ -276,53 +276,12 @@ elif menu == "Dashboard Recherche":
     else:
         st.info("Aucune condition")
 
-    # =========================
-    # 3. ADHÉRENCE RECHERCHE
-    # =========================
-    st.markdown("### 💊 Adhérence traitement (study cohort)")
-
-    if not adherence_logs.empty:
-        adherence_dist = adherence_logs["status"].value_counts()
-
-        st.bar_chart(adherence_dist)
-
-        adherence_rate = len(adherence_logs[adherence_logs["status"] == "taken"]) / len(adherence_logs)
-        st.metric("Adhérence globale", f"{adherence_rate:.2f}")
-    else:
-        st.info("Aucun log")
-
-    # =========================
-    # 4. PROGRESSION MALADIE (SYMPTÔMES)
-    # =========================
-    st.markdown("### 📈 Progression symptômes (research proxy)")
-
-    if not observations.empty:
-
-        progression = observations.groupby("patient_id").size().reset_index(name="symptom_count")
-
-        st.bar_chart(progression.set_index("patient_id"))
-
-        st.write("Nombre de symptômes par patient (proxy progression)")
-    else:
-        st.info("Aucune observation")
-
-    # =========================
-    # 5. NO-SHOW ANALYSIS
-    # =========================
-    st.markdown("### ⛔ No-show analysis")
-
-    if not adherence_logs.empty:
-        no_show_rate = len(adherence_logs[adherence_logs["status"] == "no_response"]) / len(adherence_logs)
-
-        st.metric("No-show rate", f"{no_show_rate:.2f}")
-    else:
-        st.info("Aucun data no-show")
 # =========================================================
 # 🔬 EXPORT ANONYMIZED
 # =========================================================
 elif menu == "🔬 Export Anonymisé":
 
-    st.subheader("🔬 Export research-ready")
+    st.subheader("Export des performances FL ")
 
     metrics = st.session_state.get("metrics", {})
 
