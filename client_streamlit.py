@@ -45,7 +45,7 @@ menu = st.sidebar.selectbox(
     "📌 Navigation",
     [
         "🏠 Entraînement FL",
-        "📊 Dashboard Clinique WP4",
+        "📊 Dashboard Clinique",
         "📈 Dashboard Recherche",
         "🔬 Export Anonymisé"
     ]
