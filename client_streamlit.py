@@ -237,7 +237,7 @@ elif menu == "📊 Dashboard Clinique":
     # ================= SYMPTÔMES =================
   st.markdown("### 🩺 Suivi des symptômes")
 
-    if not observations.empty:
+  if not observations.empty:
     
         obs_view = observations.copy()
     
