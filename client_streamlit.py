@@ -16,7 +16,7 @@ from torch.utils.data import DataLoader, TensorDataset
 # CONFIG
 # =========================
 st.set_page_config(page_title="WP4 FL Dashboard", layout="wide")
-st.title("🧠 WP4 Clinical AI + Federated Learning Dashboard")
+st.title("Dashboard Clinique + Federated Learning ")
 
 SERVER_URL = "https://fl-model.onrender.com"
 
@@ -42,12 +42,12 @@ if "history" not in st.session_state:
 # MENU (RESTORED + CLEAN)
 # =========================
 menu = st.sidebar.selectbox(
-    "📌 Navigation",
+    "Navigation",
     [
-        "🏠 Entraînement FL",
-        "📊 Dashboard Clinique",
-        "📈 Dashboard Recherche",
-        "🔬 Export Anonymisé"
+        "Entraînement FL",
+        "Dashboard Clinique",
+        "Dashboard Recherche",
+        "Export Anonymisé"
     ]
 )
 
@@ -134,12 +134,12 @@ if menu == "🏠 Entraînement FL":
 
         loader = create_loader(df, batch)
 
-        if st.button("📥 Load Global Model"):
+        if st.button("Load Global Model"):
             r = requests.get(f"{SERVER_URL}/get_model")
             model.load_state_dict(torch.load(io.BytesIO(r.content), map_location=device))
             st.session_state["model_loaded"] = True
 
-        if st.button("🧠 Train Local"):
+        if st.button("Train Local"):
             if not st.session_state["model_loaded"]:
                 st.warning("Load global model first")
             else:
@@ -158,7 +158,7 @@ if menu == "🏠 Entraînement FL":
 
                 st.success(f"Loss {loss:.3f} | Acc {acc:.3f}")
 
-        if st.button("📤 Send Weights"):
+        if st.button("Send Weights"):
             if st.session_state["trained"]:
                 buffer = io.BytesIO()
                 torch.save(st.session_state["model_state"], buffer)
@@ -176,9 +176,9 @@ if menu == "🏠 Entraînement FL":
 # 📊 CLINICAL DASHBOARD (REAL + AI + ANALYTICS)
 # =========================================================
 
-elif menu == "📊 Dashboard Clinique":
+elif menu == "Dashboard Clinique":
 
-    st.subheader("🏥 Vue clinique en temps réel")
+    st.subheader("🏥Vue clinique en temps réel")
 
     # ================= KPI =================
     col1, col2, col3 = st.columns(3)
@@ -189,26 +189,6 @@ elif menu == "📊 Dashboard Clinique":
 
     st.divider()
 
-    # ================= PATIENTS =================
-    st.markdown("### 👥 Liste des patients")
-
-    if not patients.empty:
-        patients_view = patients.copy()
-
-        if "phone" in patients_view.columns:
-            patients_view = patients_view.rename(columns={"phone": "📱 Téléphone"})
-
-        if "patient_id" in patients_view.columns:
-            patients_view = patients_view.drop(columns=["patient_id"])
-
-        st.download_button(
-            "⬇️ Télécharger les patients",
-            patients_view.to_csv(index=False).encode("utf-8"),
-            "patients.csv",
-            "text/csv"
-        )
-
-    st.divider()
 
     # ================= TRIAGE =================
     st.markdown("### 🚨 Niveau d'alerte")
@@ -220,29 +200,6 @@ elif menu == "📊 Dashboard Clinique":
             "⬇️ Télécharger alertes",
             conditions.to_csv(index=False).encode("utf-8"),
             "alertes.csv",
-            "text/csv"
-        )
-
-    st.divider()
-
-    # ================= SYMPTÔMES =================
-    st.markdown("### 🩺 Suivi des symptômes")
-
-    if not observations.empty:
-
-        obs_view = observations.copy()
-
-        if "severity" in obs_view.columns:
-            obs_view = obs_view[["severity"]]
-        else:
-            obs_view = pd.DataFrame({"severity": []})
-
-        obs_view["severity"] = obs_view["severity"].fillna("unknown")
-
-        st.download_button(
-            "⬇️ Télécharger symptômes",
-            obs_view.to_csv(index=False).encode("utf-8"),
-            "symptomes.csv",
             "text/csv"
         )
 
@@ -268,16 +225,8 @@ elif menu == "📊 Dashboard Clinique":
 
     st.divider()
 
-    # ================= IA =================
-    st.markdown("### 🧠 Performance IA")
-
-    if st.session_state.get("history"):
-        st.line_chart(pd.DataFrame({"accuracy": st.session_state["history"]}))
-
-    st.divider()
-
     # ================= SIMULATION =================
-    st.markdown("### 🧪 Tests")
+    st.markdown("###  cas de simulations")
 
     sim = pd.DataFrame([
         {"glycémie": 4.5, "niveau": "normal"},
@@ -291,7 +240,7 @@ elif menu == "📊 Dashboard Clinique":
 # =========================================================
 # 📈 RESEARCH DASHBOARD (BI)
 # =========================================================
-elif menu == "📈 Dashboard Recherche":
+elif menu == "Dashboard Recherche":
 
     st.subheader("📊 BI & Research Analytics (REAL DATA)")
 
