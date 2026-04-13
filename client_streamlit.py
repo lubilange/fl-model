@@ -324,25 +324,31 @@ elif menu == "Dashboard Recherche":
 # =========================================================
 # 🔬 EXPORT ANONYMIZED
 # =========================================================
-elif menu == "🔬 Export Anonymisé":
+elif menu == "🔬 ExportFL":
 
-    st.subheader("Export des performances FL ")
+    st.subheader("Export des performances FL")
 
     metrics = st.session_state.get("metrics", {})
 
     if metrics:
+
         export = pd.DataFrame([{
-            "id": f"WP4_{random.randint(1000,9999)}",
+            "id": "RECH_" + str(random.randint(1000, 9999)),
             "accuracy": metrics["accuracy"],
             "loss": metrics["loss"],
-            "dataset_size": metrics["size"]
+            "dataset_size": metrics["dataset_size"]
         }])
 
         st.dataframe(export)
 
+        csv = export.to_csv(index=False).encode("utf-8")
+
         st.download_button(
-            "⬇ Export CSV",
-            export.to_csv(index=False).encode(),
-            "wp4.csv",
+            "⬇️ Télécharger export",
+            csv,
+            "wp4_export.csv",
             "text/csv"
         )
+
+    else:
+        st.info("Aucune donnée disponible")
