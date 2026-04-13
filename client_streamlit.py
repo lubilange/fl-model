@@ -72,47 +72,52 @@ nurses = pd.DataFrame(safe_fetch("nurses"))
 
 # =========================
 # FL UTILS
-# =========================
-def create_loader(df, batch=16):
-    if df.empty:
-        return None
+# =========================def create_dataloader_from_df(df, batch_size=32):
     X = torch.tensor(df.iloc[:, :-1].values, dtype=torch.float32)
     y = torch.tensor(df.iloc[:, -1].values, dtype=torch.long)
-    return DataLoader(TensorDataset(X, y), batch_size=batch, shuffle=True)
+    dataset = TensorDataset(X, y)
+    return DataLoader(dataset, batch_size=batch_size, shuffle=True)
 
-def train_fn(model, loader, epochs, lr, device):
+
+def train_fn(model, dataloader, epochs, lr, device):
     model.to(device)
-    opt = torch.optim.Adam(model.parameters(), lr=lr)
-    loss_fn = torch.nn.CrossEntropyLoss()
-
+    criterion = torch.nn.CrossEntropyLoss()
+    optimizer = torch.optim.Adam(model.parameters(), lr=lr)
     model.train()
-    last = 0
+
+    last_loss = 0
 
     for _ in range(epochs):
-        for X, y in loader:
+        for X, y in dataloader:
             X, y = X.to(device), y.to(device)
-            opt.zero_grad()
-            loss = loss_fn(model(X), y)
+            optimizer.zero_grad()
+            loss = criterion(model(X), y)
             loss.backward()
-            opt.step()
-            last = float(loss)
+            optimizer.step()
+            last_loss = float(loss)
 
-    return last
+    return last_loss
 
-def test_fn(model, loader, device):
+
+def test_fn(model, dataloader, device):
+    model.to(device)
     model.eval()
-    correct = total = loss = 0
-    loss_fn = torch.nn.CrossEntropyLoss()
+
+    correct, total, loss = 0, 0, 0
+    criterion = torch.nn.CrossEntropyLoss()
 
     with torch.no_grad():
-        for X, y in loader:
+        for X, y in dataloader:
             X, y = X.to(device), y.to(device)
             out = model(X)
-            loss += float(loss_fn(out, y))
+            loss += float(criterion(out, y))
             correct += (out.argmax(1) == y).sum().item()
             total += y.size(0)
 
-    return loss / max(1, len(loader)), correct / max(1, total)
+    acc = correct / total
+    return loss / len(dataloader), acc
+
+
 
 # =========================================================
 # 🏠 TRAINING
