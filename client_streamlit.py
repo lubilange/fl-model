@@ -237,26 +237,26 @@ elif menu == "📊 Dashboard Clinique":
     # ================= SYMPTÔMES =================
   st.markdown("### 🩺 Suivi des symptômes")
 
-if not observations.empty:
-
-    obs_view = observations.copy()
-
-    # ================= GARDER UNIQUEMENT SEVERITY =================
-    if "severity" in obs_view.columns:
-        obs_view = obs_view[["severity"]]
-    else:
-        obs_view = pd.DataFrame({"severity": []})
-
-    # ================= NETTOYAGE =================
-    obs_view["severity"] = obs_view["severity"].fillna("unknown")
-
-    # ================= DOWNLOAD =================
-    st.download_button(
-        "⬇️ Télécharger les symptômes",
-        obs_view.to_csv(index=False).encode("utf-8"),
-        "symptomes.csv",
-        "text/csv"
-    )
+    if not observations.empty:
+    
+        obs_view = observations.copy()
+    
+        # ================= GARDER UNIQUEMENT SEVERITY =================
+        if "severity" in obs_view.columns:
+            obs_view = obs_view[["severity"]]
+        else:
+            obs_view = pd.DataFrame({"severity": []})
+    
+        # ================= NETTOYAGE =================
+        obs_view["severity"] = obs_view["severity"].fillna("unknown")
+    
+        # ================= DOWNLOAD =================
+        st.download_button(
+            "⬇️ Télécharger les symptômes",
+            obs_view.to_csv(index=False).encode("utf-8"),
+            "symptomes.csv",
+            "text/csv"
+        )
 
     st.divider()
 
