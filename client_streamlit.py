@@ -196,13 +196,6 @@ elif menu == "Dashboard Clinique":
     if not conditions.empty:
         st.bar_chart(conditions["severity"].value_counts())
 
-        st.download_button(
-            "⬇️ Télécharger alertes",
-            conditions.to_csv(index=False).encode("utf-8"),
-            "alertes.csv",
-            "text/csv"
-        )
-
     st.divider()
 
     # ================= TENDANCE =================
