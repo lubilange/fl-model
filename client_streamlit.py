@@ -181,17 +181,11 @@ elif menu == "📊 Dashboard Clinique":
     st.subheader("🏥 Vue clinique en temps réel")
 
     # ================= KPI =================
-    col1, col2, col3, col4 = st.columns(4)
+    col1, col2, col3 = st.columns(3)
 
     col1.metric("👥 Patients", len(patients))
-    col2.metric("🧾 Infos santé (Conditions FHIR)", len(conditions))
-    col3.metric("🩺 Symptômes (Observations FHIR)", len(observations))
-
-    adherence_rate = 0
-    if len(adherence_logs) > 0:
-        adherence_rate = len(adherence_logs[adherence_logs["status"] == "taken"]) / len(adherence_logs)
-
-    col4.metric("💊 Suivi traitement", f"{adherence_rate:.0%}")
+    col2.metric("🧾 Conditions FHIR", len(conditions))
+    col3.metric("🩺 Symptômes", len(observations))
 
     st.divider()
 
@@ -217,13 +211,13 @@ elif menu == "📊 Dashboard Clinique":
     st.divider()
 
     # ================= TRIAGE =================
-    st.markdown("### 🚨 Niveau d'alerte des patients")
+    st.markdown("### 🚨 Niveau d'alerte")
 
     if not conditions.empty:
         st.bar_chart(conditions["severity"].value_counts())
 
         st.download_button(
-            "⬇️ Télécharger les alertes",
+            "⬇️ Télécharger alertes",
             conditions.to_csv(index=False).encode("utf-8"),
             "alertes.csv",
             "text/csv"
@@ -246,7 +240,7 @@ elif menu == "📊 Dashboard Clinique":
         obs_view["severity"] = obs_view["severity"].fillna("unknown")
 
         st.download_button(
-            "⬇️ Télécharger les symptômes",
+            "⬇️ Télécharger symptômes",
             obs_view.to_csv(index=False).encode("utf-8"),
             "symptomes.csv",
             "text/csv"
@@ -254,58 +248,36 @@ elif menu == "📊 Dashboard Clinique":
 
     st.divider()
 
-    # ================= ADHÉRENCE =================
-    st.markdown("### 💊 Suivi des traitements")
-
-    if not adherence_logs.empty:
-
-        st.bar_chart(adherence_logs["status"].value_counts())
-
-        no_show_rate = len(adherence_logs[adherence_logs["status"] == "no_response"]) / len(adherence_logs)
-        st.metric("📉 Non-réponse", f"{no_show_rate:.0%}")
-
-        st.download_button(
-            "⬇️ Télécharger suivi traitement",
-            adherence_logs.to_csv(index=False).encode("utf-8"),
-            "adherence.csv",
-            "text/csv"
-        )
-
-    st.divider()
-
     # ================= TENDANCE =================
-    st.markdown("### 📈 Fréquence des symptômes")
+    st.markdown("### 📈 Répartition des symptômes")
 
-    if not observations.empty:
-        trend = observations.groupby("patient_id").size().reset_index(name="nb_symptomes")
+    if not observations.empty and "severity" in observations.columns:
 
-        if "phone" in patients.columns:
-            trend = trend.merge(patients[["patient_id", "phone"]], on="patient_id", how="left")
-            trend = trend.drop(columns=["patient_id"])
-            trend = trend.rename(columns={"phone": "📱 Téléphone"})
+        trend = observations["severity"].value_counts().reset_index()
+        trend.columns = ["severity", "count"]
 
-        st.bar_chart(trend.set_index("📱 Téléphone"))
+        st.bar_chart(trend.set_index("severity"))
 
     st.divider()
 
-    # ================= WORKLOAD =================
-    st.markdown("### 👩‍⚕️ Charge des soignants")
+    # ================= SUPPORT =================
+    st.markdown("### 👩‍⚕️ Support infirmier")
 
     if not nurses.empty:
         st.bar_chart(nurses["status"].value_counts())
 
     st.divider()
 
-    # ================= FL =================
+    # ================= IA =================
     st.markdown("### 🧠 Performance IA")
 
     if st.session_state.get("history"):
-        st.line_chart(pd.DataFrame({"précision": st.session_state["history"]}))
+        st.line_chart(pd.DataFrame({"accuracy": st.session_state["history"]}))
 
     st.divider()
 
     # ================= SIMULATION =================
-    st.markdown("### 🧪 Tests de validation")
+    st.markdown("### 🧪 Tests")
 
     sim = pd.DataFrame([
         {"glycémie": 4.5, "niveau": "normal"},
@@ -313,7 +285,7 @@ elif menu == "📊 Dashboard Clinique":
         {"glycémie": 6.8, "niveau": "modéré"}
     ])
 
-    sim["prédiction"] = sim["glycémie"].apply(lambda x: "élevé" if x > 7 else "normal")
+    sim["prediction"] = sim["glycémie"].apply(lambda x: "élevé" if x > 7 else "normal")
 
     st.dataframe(sim)
 # =========================================================
