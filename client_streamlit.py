@@ -72,7 +72,8 @@ nurses = pd.DataFrame(safe_fetch("nurses"))
 
 # =========================
 # FL UTILS
-# =========================def create_dataloader_from_df(df, batch_size=32):
+# =========================
+def create_dataloader_from_df(df, batch_size=32):
     X = torch.tensor(df.iloc[:, :-1].values, dtype=torch.float32)
     y = torch.tensor(df.iloc[:, -1].values, dtype=torch.long)
     dataset = TensorDataset(X, y)
