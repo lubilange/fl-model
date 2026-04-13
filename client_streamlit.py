@@ -324,7 +324,7 @@ elif menu == "Dashboard Recherche":
 # =========================================================
 # 🔬 EXPORT ANONYMIZED
 # =========================================================
-elif menu == "🔬 ExportFL":
+elif menu == "Export Anonymisé":
 
     st.subheader("Export des performances FL")
 
