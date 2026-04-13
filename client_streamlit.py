@@ -175,6 +175,7 @@ if menu == "🏠 Entraînement FL":
 # =========================================================
 # 📊 CLINICAL DASHBOARD (REAL + AI + ANALYTICS)
 # =========================================================
+
 elif menu == "📊 Dashboard Clinique":
 
     st.subheader("🏥 Vue clinique en temps réel")
@@ -183,8 +184,8 @@ elif menu == "📊 Dashboard Clinique":
     col1, col2, col3, col4 = st.columns(4)
 
     col1.metric("👥 Patients", len(patients))
-    col2.metric("🧾 Infos santé(Conditions FHIR)", len(conditions))
-    col3.metric("🩺 Nombres Symptômes(Observations FHIR)", len(observations))
+    col2.metric("🧾 Infos santé (Conditions FHIR)", len(conditions))
+    col3.metric("🩺 Symptômes (Observations FHIR)", len(observations))
 
     adherence_rate = 0
     if len(adherence_logs) > 0:
@@ -200,15 +201,11 @@ elif menu == "📊 Dashboard Clinique":
     if not patients.empty:
         patients_view = patients.copy()
 
-        # remplace id par téléphone (plus humain)
         if "phone" in patients_view.columns:
             patients_view = patients_view.rename(columns={"phone": "📱 Téléphone"})
 
-        # cacher ID si présent
         if "patient_id" in patients_view.columns:
             patients_view = patients_view.drop(columns=["patient_id"])
-
-        st.write("Données disponibles (export possible ci-dessous)")
 
         st.download_button(
             "⬇️ Télécharger les patients",
@@ -235,22 +232,19 @@ elif menu == "📊 Dashboard Clinique":
     st.divider()
 
     # ================= SYMPTÔMES =================
-  st.markdown("### 🩺 Suivi des symptômes")
+    st.markdown("### 🩺 Suivi des symptômes")
 
-  if not observations.empty:
-    
+    if not observations.empty:
+
         obs_view = observations.copy()
-    
-        # ================= GARDER UNIQUEMENT SEVERITY =================
+
         if "severity" in obs_view.columns:
             obs_view = obs_view[["severity"]]
         else:
             obs_view = pd.DataFrame({"severity": []})
-    
-        # ================= NETTOYAGE =================
+
         obs_view["severity"] = obs_view["severity"].fillna("unknown")
-    
-        # ================= DOWNLOAD =================
+
         st.download_button(
             "⬇️ Télécharger les symptômes",
             obs_view.to_csv(index=False).encode("utf-8"),
@@ -285,7 +279,6 @@ elif menu == "📊 Dashboard Clinique":
     if not observations.empty:
         trend = observations.groupby("patient_id").size().reset_index(name="nb_symptomes")
 
-        # ajouter téléphone
         if "phone" in patients.columns:
             trend = trend.merge(patients[["patient_id", "phone"]], on="patient_id", how="left")
             trend = trend.drop(columns=["patient_id"])
@@ -304,7 +297,7 @@ elif menu == "📊 Dashboard Clinique":
     st.divider()
 
     # ================= FL =================
-    st.markdown("### 🧠 Performance IA (apprentissage fédéré)")
+    st.markdown("### 🧠 Performance IA")
 
     if st.session_state.get("history"):
         st.line_chart(pd.DataFrame({"précision": st.session_state["history"]}))
@@ -323,7 +316,6 @@ elif menu == "📊 Dashboard Clinique":
     sim["prédiction"] = sim["glycémie"].apply(lambda x: "élevé" if x > 7 else "normal")
 
     st.dataframe(sim)
-
 # =========================================================
 # 📈 RESEARCH DASHBOARD (BI)
 # =========================================================
