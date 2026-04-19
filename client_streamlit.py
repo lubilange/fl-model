@@ -154,9 +154,8 @@ if menu == "Entraînement FL":
 
                 files = {"weights": ("client.pt", buffer)}
 
-                headers = {
-                    "Authorization": f"Bearer {st.secrets['FL_CLIENT_TOKEN']}"
-                }
+                TOKEN = os.environ.get("FL_CLIENT_TOKEN", "SHARED_TOKEN")
+                headers = {"Authorization": f"Bearer {TOKEN}"}
 
                 try:
                     r = requests.post(
