@@ -3,9 +3,15 @@ import pandas as pd
 import torch
 import requests
 import io
+import os
+import random
+import plotly.graph_objects as go
+
 from supabase import create_client, Client
-from authexample.task import Net, train, test
+
+from authexample.task import Net
 from torch.utils.data import DataLoader, TensorDataset
+
 
 # =========================
 # CONFIG
@@ -18,50 +24,25 @@ SERVER_URL = "https://fl-model.onrender.com"
 # =========================
 # SUPABASE
 # =========================
-SUPABASE_URL = st.secrets["SUPABASE_URL"]
-SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
-
-supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+supabase: Client = create_client(
+    st.secrets["SUPABASE_URL"],
+    st.secrets["SUPABASE_KEY"]
+)
 
 # =========================
 # SESSION STATE
 # =========================
+if "model" not in st.session_state:
+    st.session_state.model = None
+
 if "model_loaded" not in st.session_state:
-    st.session_state["model_loaded"] = False
+    st.session_state.model_loaded = False
 
 if "trained" not in st.session_state:
-    st.session_state["trained"] = False
+    st.session_state.trained = False
 
 if "metrics" not in st.session_state:
-    st.session_state["metrics"] = {}
-
-if "history" not in st.session_state:
-    st.session_state["history"] = []
-
-if "model" not in st.session_state:
-    st.session_state["model"] = None
-
-# =========================
-# MENU
-# =========================
-menu = st.sidebar.selectbox(
-    "Navigation",
-    ["Entraînement FL", "Dashboard Clinique", "Dashboard Recherche", "Export Anonymisé"]
-)
-
-# =========================
-# SAFE FETCH
-# =========================
-def safe_fetch(table):
-    try:
-        return supabase.table(table).select("*").execute().data or []
-    except:
-        return []
-
-patients = pd.DataFrame(safe_fetch("patients"))
-conditions = pd.DataFrame(safe_fetch("conditions"))
-observations = pd.DataFrame(safe_fetch("observations"))
-nurses = pd.DataFrame(safe_fetch("nurses"))
+    st.session_state.metrics = {}
 
 # =========================
 # DATA LOADER
@@ -71,117 +52,115 @@ def create_dataloader_from_df(df, batch_size=32):
     y = torch.tensor(df.iloc[:, -1].values, dtype=torch.long)
     return DataLoader(TensorDataset(X, y), batch_size=batch_size, shuffle=True)
 
+# =========================
+# UI
+# =========================
+menu = st.sidebar.selectbox(
+    "Navigation",
+    ["Entraînement FL", "Dashboard Clinique", "Dashboard Recherche"]
+)
+
 # =========================================================
-# 🏠 TRAINING
+# 🏠 TRAINING FL
 # =========================================================
 if menu == "Entraînement FL":
 
     uploaded_file = st.file_uploader("📂 Dataset CSV", type="csv")
 
     if uploaded_file:
-        df = pd.read_csv(uploaded_file)
+        df = __import__("pandas").read_csv(uploaded_file)
         st.dataframe(df.head())
 
-        col1, col2, col3 = st.columns(3)
-
-        with col1:
-            batch_size = st.number_input("Batch size", 1, value=16)
-
-        with col2:
-            epochs = st.number_input("Epochs", 1, value=5)
-
-        with col3:
-            lr = st.number_input("Learning rate", value=0.001, format="%.4f")
+        batch_size = st.number_input("Batch size", 1, value=16)
+        epochs = st.number_input("Epochs", 1, value=5)
+        lr = st.number_input("Learning rate", value=0.001, format="%.4f")
 
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         dataloader = create_dataloader_from_df(df, batch_size)
 
         # =========================
-        # 📥 GET GLOBAL MODEL
+        # GET GLOBAL MODEL
         # =========================
         if st.button("📥 Télécharger modèle global"):
             try:
-                response = requests.get(f"{SERVER_URL}/get_model", timeout=20)
-                response.raise_for_status()
+                r = requests.get(f"{SERVER_URL}/get_model", timeout=20)
+                r.raise_for_status()
 
-                buffer = io.BytesIO(response.content)
-                state = torch.load(buffer, map_location=device)
+                state = torch.load(io.BytesIO(r.content), map_location=device)
 
                 model = Net().to(device)
                 model.load_state_dict(state)
 
-                st.session_state["model"] = model
-                st.session_state["model_loaded"] = True
-                st.session_state["trained"] = False
+                st.session_state.model = model
+                st.session_state.model_loaded = True
+                st.session_state.trained = False
 
                 st.success("Modèle global chargé ✔")
 
             except Exception as e:
-                st.error(f"Erreur: {e}")
+                st.error(f"Erreur serveur: {e}")
 
         # =========================
-        # 🧠 TRAIN LOCAL
+        # TRAIN LOCAL
         # =========================
         if st.button("🧠 Entraîner"):
 
-            if not st.session_state["model_loaded"]:
-                st.warning("Télécharge d'abord le modèle global")
+            if not st.session_state.model_loaded:
+                st.warning("Charge d'abord le modèle global")
             else:
-                model = st.session_state["model"]
+                model = st.session_state.model
 
                 loss = train(model, dataloader, epochs, lr, device)
                 test_loss, acc = test(model, dataloader, device)
 
-                st.success(f"Loss: {loss:.4f}")
-                st.info(f"Accuracy: {acc:.4f}")
-
-                st.session_state["metrics"] = {
+                st.session_state.metrics = {
                     "loss": loss,
                     "test_loss": test_loss,
                     "accuracy": acc,
                     "dataset_size": len(df)
                 }
 
-                st.session_state["history"].append(acc)
-                st.session_state["trained"] = True
+                st.session_state.trained = True
+
+                st.success(f"Loss: {loss:.4f}")
+                st.info(f"Accuracy: {acc:.4f}")
 
         # =========================
-        # 📤 SEND WEIGHTS (FL ONLY)
+        # SEND WEIGHTS
         # =========================
-        if st.button("📤 Envoyer poids"):
+        if st.button("📤 Envoyer poids (FL)"):
 
-            if not st.session_state["trained"]:
+            if not st.session_state.trained:
                 st.error("Entraîne d'abord le modèle")
             else:
-                model = st.session_state["model"]
-
                 buffer = io.BytesIO()
-                torch.save(model.state_dict(), buffer)
+                torch.save(st.session_state.model.state_dict(), buffer)
                 buffer.seek(0)
 
-                files = {"weights": ("client_weights.pt", buffer)}
+                files = {"weights": ("client.pt", buffer)}
 
-                TOKEN = st.secrets.get("FL_CLIENT_TOKEN", "SHARED_TOKEN")
-                headers = {"Authorization": f"Bearer {TOKEN}"}
+                headers = {
+                    "Authorization": f"Bearer {st.secrets['FL_CLIENT_TOKEN']}"
+                }
 
                 try:
-                    response = requests.post(
+                    r = requests.post(
                         f"{SERVER_URL}/submit_weights",
                         files=files,
                         headers=headers,
                         timeout=30
                     )
 
-                    if response.status_code == 200:
-                        st.success("Poids envoyés ✔")
-                        st.json(response.json())
+                    if r.status_code == 200:
+                        st.success("✔ Poids envoyés au serveur FL")
+                        st.json(r.json())
 
-                        st.info("Flower gère l’aggregation automatiquement")
+                        st.info("Aggregation gérée automatiquement par Flower côté serveur")
 
-                        st.session_state["trained"] = False
+                        st.session_state.trained = False
 
                     else:
-                        st.error(response.text)
+                        st.error(r.text)
 
                 except Exception as e:
                     st.error(f"Erreur réseau: {e}")
