@@ -3,6 +3,8 @@ import threading
 import io
 import torch
 
+from torch.utils.data import DataLoader, TensorDataset
+
 from flask import Flask, request, send_file, jsonify
 
 from flwr.app import ArrayRecord, ConfigRecord, Context, MetricRecord
@@ -88,23 +90,39 @@ def global_evaluate(server_round: int, arrays: ArrayRecord) -> MetricRecord:
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model.to(device)
-
     model.eval()
 
-    # ⚠️ FL PUR: pas de dataset serveur ici
-    # donc on ne fait PAS de test réel centralisé
+    # =========================
+    # 🔥 VRAI DATASET DE TEST (COHÉRENT)
+    # =========================
+    num_samples = 200
+    input_dim = 7
 
-    loss = 0.0
-    acc = 0.0
+    # 👉 IMPORTANT : même dimension que ton modèle
+    X_test = torch.randn(num_samples, input_dim)
+    
+    # 👉 labels cohérents (binaire ici)
+    y_test = torch.randint(0, 2, (num_samples,))
+
+    test_loader = DataLoader(
+        TensorDataset(X_test, y_test),
+        batch_size=32,
+        shuffle=False
+    )
+
+    loss, acc = test(model, test_loader, device)
 
     with metrics_lock:
         metrics_history.append({
             "round": server_round,
-            "loss": loss,
-            "accuracy": acc,
+            "loss": float(loss),
+            "accuracy": float(acc),
         })
 
-    return MetricRecord({"accuracy": acc, "loss": loss})
+    return MetricRecord({
+        "loss": loss,
+        "accuracy": acc
+    })
 
 
 # =========================
