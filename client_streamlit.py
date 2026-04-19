@@ -6,44 +6,59 @@ import io
 import os
 import random
 import plotly.graph_objects as go
-
+from authexample.task import Net, train, test
 from supabase import create_client, Client
-
-from authexample.task import Net
 from torch.utils.data import DataLoader, TensorDataset
-
 
 # =========================
 # CONFIG
 # =========================
 st.set_page_config(page_title="WP4 FL Dashboard", layout="wide")
-st.title("Dashboard + Federated Learning")
+st.title("Dashboard + Federated Learning ")
 
 SERVER_URL = "https://fl-model.onrender.com"
 
 # =========================
 # SUPABASE
 # =========================
-supabase: Client = create_client(
-    st.secrets["SUPABASE_URL"],
-    st.secrets["SUPABASE_KEY"]
-)
+SUPABASE_URL = st.secrets["SUPABASE_URL"]
+SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
+
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 # =========================
 # SESSION STATE
 # =========================
-if "model" not in st.session_state:
-    st.session_state.model = None
-
 if "model_loaded" not in st.session_state:
-    st.session_state.model_loaded = False
+    st.session_state["model_loaded"] = False
 
 if "trained" not in st.session_state:
-    st.session_state.trained = False
+    st.session_state["trained"] = False
 
 if "metrics" not in st.session_state:
-    st.session_state.metrics = {}
+    st.session_state["metrics"] = {}
 
+if "history" not in st.session_state:
+    st.session_state["history"] = []
+
+
+# =========================
+# SUPABASE SAFE FETCH
+# =========================
+def safe_fetch(table):
+    try:
+        return supabase.table(table).select("*").execute().data or []
+    except:
+        return []
+# =========================
+# DATA SOURCES (COHERENT WITH YOUR BACKEND)
+# =========================
+patients = pd.DataFrame(safe_fetch("patients"))
+conditions = pd.DataFrame(safe_fetch("conditions"))
+observations = pd.DataFrame(safe_fetch("observations"))
+treatments = pd.DataFrame(safe_fetch("treatments"))
+adherence_logs = pd.DataFrame(safe_fetch("adherence_logs"))
+nurses = pd.DataFrame(safe_fetch("nurses"))
 # =========================
 # DATA LOADER
 # =========================
