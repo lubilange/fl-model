@@ -157,37 +157,58 @@ if menu == "Entraînement FL":
         # =========================
         if st.button("📤 Envoyer poids"):
 
-            if not st.session_state["trained"]:
-                st.error("Entraîne d'abord le modèle")
+    if not st.session_state["trained"]:
+        st.error("Entraîne d'abord le modèle")
+    else:
+        model = st.session_state["model"]
+
+        buffer = io.BytesIO()
+        torch.save(model.state_dict(), buffer)
+        buffer.seek(0)
+
+        files = {"weights": ("client_weights.pt", buffer)}
+
+        TOKEN = st.secrets.get("FL_CLIENT_TOKEN", "SHARED_TOKEN")
+        headers = {"Authorization": f"Bearer {TOKEN}"}
+
+        try:
+            # =========================
+            # 1. SEND WEIGHTS
+            # =========================
+            response = requests.post(
+                f"{SERVER_URL}/submit_weights",
+                files=files,
+                headers=headers,
+                timeout=30
+            )
+
+            if response.status_code == 200:
+                st.success("Poids envoyés ✔")
+                st.json(response.json())
+
+                # =========================
+                # 2. TRIGGER AGGREGATION (🔥 AJOUT IMPORTANT)
+                # =========================
+                agg = requests.post(
+                    f"{SERVER_URL}/aggregate",
+                    headers=headers,
+                    timeout=30
+                )
+
+                if agg.status_code == 200:
+                    st.success("Modèle global mis à jour ✔")
+                    st.json(agg.json())
+                else:
+                    st.warning(f"Aggregation error: {agg.text}")
+
+                # reset
+                st.session_state["trained"] = False
+
             else:
-                model = st.session_state["model"]
+                st.error(response.text)
 
-                buffer = io.BytesIO()
-                torch.save(model.state_dict(), buffer)
-                buffer.seek(0)
-
-                files = {"weights": ("client_weights.pt", buffer)}
-
-                TOKEN = st.secrets.get("FL_CLIENT_TOKEN", "SHARED_TOKEN")
-                headers = {"Authorization": f"Bearer {TOKEN}"}
-
-                try:
-                    response = requests.post(
-                        f"{SERVER_URL}/submit_weights",
-                        files=files,
-                        headers=headers,
-                        timeout=30
-                    )
-
-                    if response.status_code == 200:
-                        st.success("Poids envoyés ✔")
-                        st.json(response.json())
-                        st.session_state["trained"] = False
-                    else:
-                        st.error(response.text)
-
-                except Exception as e:
-                    st.error(f"Erreur réseau: {e}")
+        except Exception as e:
+            st.error(f"Erreur réseau: {e}")
 # =========================================================
 # 📊 CLINICAL DASHBOARD (REAL + AI + ANALYTICS)
 # =========================================================
