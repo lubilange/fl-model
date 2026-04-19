@@ -123,7 +123,11 @@ def test_fn(model, dataloader, device):
     acc = correct / total
     return loss / len(dataloader), acc
 
-
+# =========================
+# INIT MODEL (IMPORTANT)
+# =========================
+if "model" not in st.session_state:
+    st.session_state["model"] = None
 
 # =========================================================
 # 🏠 TRAINING
@@ -145,40 +149,45 @@ if menu == "Entraînement FL":
             epochs = st.number_input("Epochs", 1, value=5)
 
         with col3:
-            lr = st.number_input("Learning rate", value=0.001, format="%.3f")
+            lr = st.number_input("Learning rate", value=0.001, format="%.4f")
 
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        model = Net().to(device)
-
         dataloader = create_dataloader_from_df(df, batch_size)
 
         # =========================
-        # GLOBAL MODEL
+        # 📥 DOWNLOAD GLOBAL MODEL
         # =========================
         if st.button("📥 Télécharger modèle global"):
             try:
-                response = requests.get(f"{SERVER_URL}/get_model")
+                response = requests.get(f"{SERVER_URL}/get_model", timeout=20)
                 response.raise_for_status()
 
                 buffer = io.BytesIO(response.content)
                 global_state = torch.load(buffer, map_location=device)
 
+                model = Net().to(device)
                 model.load_state_dict(global_state)
 
+                # 🔥 stockage correct
+                st.session_state["model"] = model
                 st.session_state["model_loaded"] = True
+                st.session_state["trained"] = False
+
                 st.success("Modèle global chargé ✔")
 
             except Exception as e:
-                st.error(e)
+                st.error(f"Erreur: {e}")
 
         # =========================
-        # TRAIN LOCAL
+        # 🧠 TRAIN LOCAL
         # =========================
         if st.button("🧠 Entraîner"):
 
-            if not st.session_state["model_loaded"]:
-                st.warning("Télécharge le modèle global")
+            if not st.session_state.get("model_loaded"):
+                st.warning("Télécharge le modèle global d'abord")
             else:
+                model = st.session_state["model"]
+
                 loss = train_fn(model, dataloader, epochs, lr, device)
                 test_loss, acc = test_fn(model, dataloader, device)
 
@@ -193,37 +202,47 @@ if menu == "Entraînement FL":
                 }
 
                 st.session_state["history"].append(acc)
-
-                st.session_state["model_state"] = model.state_dict()
                 st.session_state["trained"] = True
 
         # =========================
-        # SEND WEIGHTS
+        # 📤 SEND WEIGHTS
         # =========================
         if st.button("📤 Envoyer poids"):
 
-            if not st.session_state.get("trained", False):
+            if not st.session_state.get("trained"):
                 st.error("Entraîne d'abord le modèle")
             else:
+                model = st.session_state["model"]
+
                 buffer = io.BytesIO()
-                torch.save(st.session_state["model_state"], buffer)
+                torch.save(model.state_dict(), buffer)
                 buffer.seek(0)
 
                 files = {"weights": ("client_weights.pt", buffer)}
 
-                TOKEN = os.environ.get("FL_CLIENT_TOKEN", "SHARED_TOKEN")
+                # 🔒 token correct (Streamlit)
+                TOKEN = st.secrets.get("FL_CLIENT_TOKEN", "SHARED_TOKEN")
                 headers = {"Authorization": f"Bearer {TOKEN}"}
 
-                response = requests.post(
-                    f"{SERVER_URL}/submit_weights",
-                    files=files,
-                    headers=headers
-                )
+                try:
+                    response = requests.post(
+                        f"{SERVER_URL}/submit_weights",
+                        files=files,
+                        headers=headers,
+                        timeout=30
+                    )
 
-                if response.status_code == 200:
-                    st.success("Poids envoyés ✔")
-                else:
-                    st.error(response.text)
+                    if response.status_code == 200:
+                        st.success("Poids envoyés ✔")
+                        st.json(response.json())
+
+                        # 🔥 reset cycle
+                        st.session_state["trained"] = False
+                    else:
+                        st.error(response.text)
+
+                except Exception as e:
+                    st.error(f"Erreur réseau: {e}")
 # =========================================================
 # 📊 CLINICAL DASHBOARD (REAL + AI + ANALYTICS)
 # =========================================================
