@@ -85,7 +85,17 @@ if menu == "Entraînement FL":
     if uploaded_file:
         df = __import__("pandas").read_csv(uploaded_file)
         st.dataframe(df.head())
-        batch_size = st.number_input("Batch size", 1, value=16)
+        col1, col2, col3 = st.columns(3)
+
+        with col1:
+            batch_size = st.number_input("Batch size", 1, value=16)
+
+        with col2:
+            epochs = st.number_input("Epochs", 1, value=5)
+
+        with col3:
+            lr = st.number_input("Learning rate", value=0.001, format="%.3f")
+
 
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         dataloader = create_dataloader_from_df(df, batch_size)
