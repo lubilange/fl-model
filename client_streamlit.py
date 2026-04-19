@@ -3,12 +3,7 @@ import pandas as pd
 import torch
 import requests
 import io
-import os
-import random
-import plotly.graph_objects as go
-
 from supabase import create_client, Client
-
 from authexample.task import Net, train, test
 from torch.utils.data import DataLoader, TensorDataset
 
@@ -46,7 +41,6 @@ if "history" not in st.session_state:
 if "model" not in st.session_state:
     st.session_state["model"] = None
 
-
 # =========================
 # MENU
 # =========================
@@ -75,8 +69,7 @@ nurses = pd.DataFrame(safe_fetch("nurses"))
 def create_dataloader_from_df(df, batch_size=32):
     X = torch.tensor(df.iloc[:, :-1].values, dtype=torch.float32)
     y = torch.tensor(df.iloc[:, -1].values, dtype=torch.long)
-    dataset = TensorDataset(X, y)
-    return DataLoader(dataset, batch_size=batch_size, shuffle=True)
+    return DataLoader(TensorDataset(X, y), batch_size=batch_size, shuffle=True)
 
 # =========================================================
 # 🏠 TRAINING
@@ -127,7 +120,7 @@ if menu == "Entraînement FL":
                 st.error(f"Erreur: {e}")
 
         # =========================
-        # 🧠 TRAIN LOCAL (using task.py)
+        # 🧠 TRAIN LOCAL
         # =========================
         if st.button("🧠 Entraîner"):
 
@@ -153,7 +146,7 @@ if menu == "Entraînement FL":
                 st.session_state["trained"] = True
 
         # =========================
-        # 📤 SEND WEIGHTS
+        # 📤 SEND WEIGHTS (FL ONLY)
         # =========================
         if st.button("📤 Envoyer poids"):
 
@@ -161,16 +154,16 @@ if menu == "Entraînement FL":
                 st.error("Entraîne d'abord le modèle")
             else:
                 model = st.session_state["model"]
-        
+
                 buffer = io.BytesIO()
                 torch.save(model.state_dict(), buffer)
                 buffer.seek(0)
-        
+
                 files = {"weights": ("client_weights.pt", buffer)}
-        
+
                 TOKEN = st.secrets.get("FL_CLIENT_TOKEN", "SHARED_TOKEN")
                 headers = {"Authorization": f"Bearer {TOKEN}"}
-        
+
                 try:
                     response = requests.post(
                         f"{SERVER_URL}/submit_weights",
@@ -178,18 +171,18 @@ if menu == "Entraînement FL":
                         headers=headers,
                         timeout=30
                     )
-        
+
                     if response.status_code == 200:
                         st.success("Poids envoyés ✔")
                         st.json(response.json())
-        
-                        st.info("Flower gère déjà l'aggregation automatiquement")
-        
+
+                        st.info("Flower gère l’aggregation automatiquement")
+
                         st.session_state["trained"] = False
-        
+
                     else:
                         st.error(response.text)
-        
+
                 except Exception as e:
                     st.error(f"Erreur réseau: {e}")
 # =========================================================
