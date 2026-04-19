@@ -42,14 +42,19 @@ metrics_lock = threading.Lock()
 final_model_path = "final_model.pt"
 
 # =========================
-# FLOWER SERVER (CORE FL)
+# FLOWER SERVER
 # =========================
 flwr_app = ServerApp()
 
 
 @flwr_app.main()
 def main(grid: Grid, context: Context) -> None:
+
+    # 🔥 LOG START SERVER
     print("🚀 Flower FL server starting...")
+    print(f"⚙️ Rounds: {NUM_SERVER_ROUNDS}")
+    print(f"👥 Clients sampled: {NUM_SAMPLED_CLIENTS}")
+    print(f"📉 Noise: {NOISE_MULTIPLIER} | Clipping: {CLIPPING_NORM}")
 
     with model_lock:
         initial_arrays = ArrayRecord(global_model.state_dict())
@@ -78,13 +83,15 @@ def main(grid: Grid, context: Context) -> None:
 
     torch.save(final_state, final_model_path)
 
-    print("✅ Training finished, model saved.")
+    print("✅ Training finished")
+    print("📦 Model saved:", final_model_path)
 
 
 # =========================
-# GLOBAL EVALUATION (FL REAL STYLE)
+# GLOBAL EVALUATION
 # =========================
 def global_evaluate(server_round: int, arrays: ArrayRecord) -> MetricRecord:
+
     model = Net()
     model.load_state_dict(arrays.to_torch_state_dict())
 
@@ -92,16 +99,11 @@ def global_evaluate(server_round: int, arrays: ArrayRecord) -> MetricRecord:
     model.to(device)
     model.eval()
 
-    # =========================
-    # 🔥 VRAI DATASET DE TEST (COHÉRENT)
-    # =========================
+    # 🔥 Fake dataset (à remplacer plus tard par vrai dataset)
     num_samples = 200
     input_dim = 7
 
-    # 👉 IMPORTANT : même dimension que ton modèle
     X_test = torch.randn(num_samples, input_dim)
-    
-    # 👉 labels cohérents (binaire ici)
     y_test = torch.randint(0, 2, (num_samples,))
 
     test_loader = DataLoader(
@@ -111,6 +113,12 @@ def global_evaluate(server_round: int, arrays: ArrayRecord) -> MetricRecord:
     )
 
     loss, acc = test(model, test_loader, device)
+
+    # 🔥 LOG IMPORTANT RENDER
+    print(f"[ROUND {server_round}] LOSS={loss:.4f} ACC={acc:.4f}")
+
+    # 🔥 check model change (debug FL)
+    print("MODEL CHECK:", sum(p.sum().item() for p in model.parameters()))
 
     with metrics_lock:
         metrics_history.append({
@@ -133,14 +141,14 @@ app = Flask(__name__)
 
 @app.route("/")
 def home():
-    return "Flower FL Server + API running 🚀"
+    print("🌐 API HIT: /")
+    return "Flower FL Server running 🚀"
 
 
-# =========================
-# GET MODEL
-# =========================
 @app.route("/get_model", methods=["GET"])
 def get_model():
+    print("📥 API HIT: get_model")
+
     with model_lock:
         buffer = io.BytesIO()
         torch.save(global_model.state_dict(), buffer)
@@ -149,28 +157,29 @@ def get_model():
     return send_file(buffer, as_attachment=True, download_name="global_model.pt")
 
 
-# =========================
-# FINAL MODEL
-# =========================
 @app.route("/final_model", methods=["GET"])
 def final_model():
+    print("📦 API HIT: final_model")
+
     if not os.path.exists(final_model_path):
         return jsonify({"error": "Model not trained yet"}), 404
 
     return send_file(final_model_path, as_attachment=True)
 
 
-# =========================
-# SUBMIT WEIGHTS (FL ONLY)
-# =========================
 @app.route("/submit_weights", methods=["POST"])
 def submit_weights():
+
+    print("📤 API HIT: submit_weights")
+
     try:
         auth_header = request.headers.get("Authorization", "")
+
         if not auth_header.startswith("Bearer "):
             return jsonify({"error": "Missing token"}), 401
 
         token = auth_header.split(" ")[1]
+
         if token != FL_CLIENT_TOKEN:
             return jsonify({"error": "Invalid token"}), 401
 
@@ -179,7 +188,10 @@ def submit_weights():
 
         file = request.files["weights"]
         buffer = io.BytesIO(file.read())
+
         _ = torch.load(buffer, map_location="cpu")
+
+        print("✔ Weights received from client")
 
         return jsonify({
             "message": "Weights received",
@@ -187,14 +199,14 @@ def submit_weights():
         }), 200
 
     except Exception as e:
+        print("❌ ERROR:", e)
         return jsonify({"error": str(e)}), 500
 
 
-# =========================
-# METRICS
-# =========================
 @app.route("/metrics", methods=["GET"])
 def metrics():
+    print("📊 API HIT: metrics")
+
     with metrics_lock:
         return jsonify(metrics_history)
 
@@ -207,5 +219,6 @@ def run_flower():
 
 
 if __name__ == "__main__":
+    print("🔥 Starting Flask + Flower server...")
     threading.Thread(target=run_flower, daemon=True).start()
     app.run(host="0.0.0.0", port=PORT)
