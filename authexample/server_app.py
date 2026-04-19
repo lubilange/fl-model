@@ -3,7 +3,6 @@ import threading
 import io
 import torch
 from flask import Flask, request, send_file, jsonify
-
 from flwr.app import ArrayRecord, ConfigRecord, Context, MetricRecord
 from flwr.serverapp import Grid, ServerApp
 from flwr.serverapp.strategy import (
