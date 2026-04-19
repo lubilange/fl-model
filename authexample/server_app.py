@@ -2,9 +2,16 @@ import os
 import threading
 import io
 import torch
-import random
 
 from flask import Flask, request, send_file, jsonify
+
+from flwr.app import ArrayRecord, ConfigRecord, Context, MetricRecord
+from flwr.serverapp import Grid, ServerApp
+from flwr.serverapp.strategy import (
+    DifferentialPrivacyServerSideFixedClipping,
+    FedAvg,
+)
+
 from authexample.task import Net, test
 
 # =========================
@@ -13,7 +20,13 @@ from authexample.task import Net, test
 PORT = int(os.environ.get("PORT", 8080))
 FL_CLIENT_TOKEN = os.environ.get("FL_CLIENT_TOKEN", "SHARED_TOKEN")
 
-CLIENT_FRACTION = 0.5
+FRACTION_EVALUATE = float(os.environ.get("FRACTION_EVALUATE", 0.5))
+NUM_SERVER_ROUNDS = int(os.environ.get("NUM_SERVER_ROUNDS", 10))
+LEARNING_RATE = float(os.environ.get("LEARNING_RATE", 0.001))
+
+NOISE_MULTIPLIER = float(os.environ.get("NOISE_MULTIPLIER", 0.3))
+CLIPPING_NORM = float(os.environ.get("CLIPPING_NORM", 1.0))
+NUM_SAMPLED_CLIENTS = int(os.environ.get("NUM_SAMPLED_CLIENTS", 2))
 
 # =========================
 # GLOBAL STATE
@@ -21,189 +34,160 @@ CLIENT_FRACTION = 0.5
 global_model = Net()
 model_lock = threading.Lock()
 
-client_updates = []
-registered_clients = set()
+metrics_history = []
+metrics_lock = threading.Lock()
 
-round_id = 0
-model_version = 0
-
-round_lock = threading.Lock()
-
-final_metrics = {
-    "accuracy": [],
-    "loss": []
-}
-
-MODEL_PATH = "global_model.pt"
+final_model_path = "final_model.pt"
 
 # =========================
-# FLASK
+# FLOWER SERVER (CORE FL)
+# =========================
+flwr_app = ServerApp()
+
+
+@flwr_app.main()
+def main(grid: Grid, context: Context) -> None:
+    print("🚀 Flower FL server starting...")
+
+    with model_lock:
+        initial_arrays = ArrayRecord(global_model.state_dict())
+
+    base_strategy = FedAvg(fraction_evaluate=FRACTION_EVALUATE)
+
+    strategy = DifferentialPrivacyServerSideFixedClipping(
+        base_strategy,
+        noise_multiplier=NOISE_MULTIPLIER,
+        clipping_norm=CLIPPING_NORM,
+        num_sampled_clients=NUM_SAMPLED_CLIENTS,
+    )
+
+    result = strategy.start(
+        grid=grid,
+        initial_arrays=initial_arrays,
+        train_config=ConfigRecord({"lr": LEARNING_RATE}),
+        num_rounds=NUM_SERVER_ROUNDS,
+        evaluate_fn=global_evaluate,
+    )
+
+    final_state = result.arrays.to_torch_state_dict()
+
+    with model_lock:
+        global_model.load_state_dict(final_state)
+
+    torch.save(final_state, final_model_path)
+
+    print("✅ Training finished, model saved.")
+
+
+# =========================
+# GLOBAL EVALUATION (FL REAL STYLE)
+# =========================
+def global_evaluate(server_round: int, arrays: ArrayRecord) -> MetricRecord:
+    model = Net()
+    model.load_state_dict(arrays.to_torch_state_dict())
+
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model.to(device)
+
+    model.eval()
+
+    # ⚠️ FL PUR: pas de dataset serveur ici
+    # donc on ne fait PAS de test réel centralisé
+
+    loss = 0.0
+    acc = 0.0
+
+    with metrics_lock:
+        metrics_history.append({
+            "round": server_round,
+            "loss": loss,
+            "accuracy": acc,
+        })
+
+    return MetricRecord({"accuracy": acc, "loss": loss})
+
+
+# =========================
+# FLASK API
 # =========================
 app = Flask(__name__)
 
 
 @app.route("/")
 def home():
-    return "FL Server Running 🚀"
+    return "Flower FL Server + API running 🚀"
 
 
 # =========================
-# GET MODEL (avec metadata)
+# GET MODEL
 # =========================
 @app.route("/get_model", methods=["GET"])
 def get_model():
     with model_lock:
         buffer = io.BytesIO()
-        torch.save({
-            "model": global_model.state_dict(),
-            "round": round_id,
-            "version": model_version
-        }, buffer)
+        torch.save(global_model.state_dict(), buffer)
         buffer.seek(0)
 
     return send_file(buffer, as_attachment=True, download_name="global_model.pt")
 
 
 # =========================
-# CLIENT WEIGHTS
+# FINAL MODEL
+# =========================
+@app.route("/final_model", methods=["GET"])
+def final_model():
+    if not os.path.exists(final_model_path):
+        return jsonify({"error": "Model not trained yet"}), 404
+
+    return send_file(final_model_path, as_attachment=True)
+
+
+# =========================
+# SUBMIT WEIGHTS (FL ONLY)
 # =========================
 @app.route("/submit_weights", methods=["POST"])
 def submit_weights():
     try:
-        token = request.headers.get("Authorization", "").replace("Bearer ", "")
-        if token != FL_CLIENT_TOKEN:
-            return jsonify({"error": "Unauthorized"}), 401
+        auth_header = request.headers.get("Authorization", "")
+        if not auth_header.startswith("Bearer "):
+            return jsonify({"error": "Missing token"}), 401
 
-        client_id = request.form.get("client_id", "unknown")
+        token = auth_header.split(" ")[1]
+        if token != FL_CLIENT_TOKEN:
+            return jsonify({"error": "Invalid token"}), 401
+
+        if "weights" not in request.files:
+            return jsonify({"error": "Missing file"}), 400
 
         file = request.files["weights"]
         buffer = io.BytesIO(file.read())
-        client_state = torch.load(buffer, map_location="cpu")
-
-        with round_lock:
-            registered_clients.add(client_id)
-            client_updates.append({
-                "client_id": client_id,
-                "state": client_state
-            })
-
-        return jsonify({"message": "Received", "round": round_id}), 200
-
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-
-# =========================
-# CLIENT SAMPLING (50%)
-# =========================
-def sample_clients():
-    clients = list(registered_clients)
-    if len(clients) == 0:
-        return []
-    return random.sample(clients, max(1, int(len(clients) * CLIENT_FRACTION)))
-
-
-# =========================
-# AGGREGATION FEDAVG
-# =========================
-@app.route("/aggregate", methods=["POST"])
-def aggregate():
-    global round_id, model_version, global_model
-
-    with round_lock:
-        if len(client_updates) == 0:
-            return jsonify({"error": "No updates"}), 400
-
-        round_id += 1
-        model_version += 1
-
-        selected_clients = sample_clients()
-
-        selected_updates = [
-            u["state"] for u in client_updates
-            if u["client_id"] in selected_clients
-        ]
-
-        if len(selected_updates) == 0:
-            return jsonify({"error": "No sampled clients"}), 400
-
-        avg_state = {}
-        for k in selected_updates[0].keys():
-            avg_state[k] = torch.zeros_like(selected_updates[0][k])
-
-        for update in selected_updates:
-            for k in update:
-                avg_state[k] += update[k]
-
-        for k in avg_state:
-            avg_state[k] /= len(selected_updates)
-
-        with model_lock:
-            global_model.load_state_dict(avg_state)
-            torch.save(global_model.state_dict(), MODEL_PATH)
-
-        client_updates.clear()
-
-    return jsonify({
-        "message": "Aggregation done ✔",
-        "round": round_id,
-        "version": model_version,
-        "clients_used": len(selected_updates)
-    })
-
-
-# =========================
-# VALIDATION REAL (FL STYLE)
-# =========================
-@app.route("/validate", methods=["POST"])
-def validate():
-    try:
-        with model_lock:
-            model = Net()
-            model.load_state_dict(global_model.state_dict())
-
-        device = torch.device("cpu")
-
-        # ⚠️ à remplacer par ton vrai dataset test
-        test_loader = None
-
-        if test_loader is None:
-            return jsonify({"error": "No test dataset configured"}), 400
-
-        loss, acc = test(model, test_loader, device)
-
-        final_metrics["accuracy"].append(acc)
-        final_metrics["loss"].append(loss)
+        _ = torch.load(buffer, map_location="cpu")
 
         return jsonify({
-            "round": round_id,
-            "accuracy": acc,
-            "loss": loss
-        })
+            "message": "Weights received",
+            "mode": "Flower handles training"
+        }), 200
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
 
 # =========================
-# FINAL REPORT (FIN FL)
+# METRICS
 # =========================
-@app.route("/final_report", methods=["GET"])
-def final_report():
-
-    if len(final_metrics["accuracy"]) == 0:
-        return jsonify({"error": "No metrics yet"}), 400
-
-    return jsonify({
-        "final_accuracy": sum(final_metrics["accuracy"]) / len(final_metrics["accuracy"]),
-        "final_loss": sum(final_metrics["loss"]) / len(final_metrics["loss"]),
-        "rounds": round_id,
-        "model_version": model_version
-    })
+@app.route("/metrics", methods=["GET"])
+def metrics():
+    with metrics_lock:
+        return jsonify(metrics_history)
 
 
 # =========================
 # RUN
 # =========================
+def run_flower():
+    flwr_app.main()
+
+
 if __name__ == "__main__":
+    threading.Thread(target=run_flower, daemon=True).start()
     app.run(host="0.0.0.0", port=PORT)
