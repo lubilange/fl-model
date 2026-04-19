@@ -187,7 +187,7 @@ if menu == "Entraînement FL":
                 st.json(response.json())
 
                 # =========================
-                # 2. TRIGGER AGGREGATION (🔥 AJOUT IMPORTANT)
+                # 2. TRIGGER AGGREGATION (FL réel)
                 # =========================
                 agg = requests.post(
                     f"{SERVER_URL}/aggregate",
@@ -196,12 +196,11 @@ if menu == "Entraînement FL":
                 )
 
                 if agg.status_code == 200:
-                    st.success("Modèle global mis à jour ✔")
+                    st.success("🔄 Modèle global mis à jour (FedAvg)")
                     st.json(agg.json())
                 else:
                     st.warning(f"Aggregation error: {agg.text}")
 
-                # reset
                 st.session_state["trained"] = False
 
             else:
