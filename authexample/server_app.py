@@ -2,188 +2,76 @@ import os
 import threading
 import io
 import torch
-
-from torch.utils.data import DataLoader, TensorDataset
+import copy
 from flask import Flask, request, send_file, jsonify
 
-from flwr.app import ArrayRecord, ConfigRecord, Context, MetricRecord
-from flwr.serverapp import Grid, ServerApp
-from flwr.serverapp.strategy import (
-    DifferentialPrivacyServerSideFixedClipping,
-    FedAvg,
-)
-
 from authexample.task import Net, test
+
 
 # =========================
 # CONFIG
 # =========================
 PORT = int(os.environ.get("PORT", 8080))
 FL_CLIENT_TOKEN = os.environ.get("FL_CLIENT_TOKEN", "SHARED_TOKEN")
+NUM_CLIENTS_EXPECTED = int(os.environ.get("NUM_CLIENTS_EXPECTED", 2))
 
-FRACTION_EVALUATE = float(os.environ.get("FRACTION_EVALUATE", 0.5))
-NUM_SERVER_ROUNDS = int(os.environ.get("NUM_SERVER_ROUNDS", 10))
-LEARNING_RATE = float(os.environ.get("LEARNING_RATE", 0.001))
-
-NOISE_MULTIPLIER = float(os.environ.get("NOISE_MULTIPLIER", 0.3))
-CLIPPING_NORM = float(os.environ.get("CLIPPING_NORM", 1.0))
-NUM_SAMPLED_CLIENTS = int(os.environ.get("NUM_SAMPLED_CLIENTS", 2))
 
 # =========================
-# GLOBAL STATE
+# GLOBAL MODEL
 # =========================
 global_model = Net()
 model_lock = threading.Lock()
+
+
+# =========================
+# STORAGE CLIENT WEIGHTS
+# =========================
+client_weights_buffer = []
+buffer_lock = threading.Lock()
+
 
 metrics_history = []
 metrics_lock = threading.Lock()
 
 final_model_path = "final_model.pt"
 
+
 # =========================
-# FLOWER SERVER
+# FEDAVG FUNCTION
 # =========================
-flwr_app = ServerApp()
+def fedavg(weight_list):
+    avg_weights = copy.deepcopy(weight_list[0])
 
+    for key in avg_weights.keys():
+        for i in range(1, len(weight_list)):
+            avg_weights[key] += weight_list[i][key]
+        avg_weights[key] = avg_weights[key] / len(weight_list)
 
-@flwr_app.main()
-def main(grid: Grid, context: Context) -> None:
-
-    print("\n🚀 ===============================")
-    print("🚀 FLOWER SERVER STARTED")
-    print("🚀 ===============================\n")
-
-    print(f"⚙️ Rounds: {NUM_SERVER_ROUNDS}")
-    print(f"👥 Clients sampled: {NUM_SAMPLED_CLIENTS}")
-    print(f"📉 Noise: {NOISE_MULTIPLIER} | Clipping: {CLIPPING_NORM}\n")
-
-    with model_lock:
-        initial_arrays = ArrayRecord(global_model.state_dict())
-
-    base_strategy = FedAvg(fraction_evaluate=FRACTION_EVALUATE)
-
-    strategy = DifferentialPrivacyServerSideFixedClipping(
-        base_strategy,
-        noise_multiplier=NOISE_MULTIPLIER,
-        clipping_norm=CLIPPING_NORM,
-        num_sampled_clients=NUM_SAMPLED_CLIENTS,
-    )
-
-    print("⏳ Training FL started...\n")
-
-    result = strategy.start(
-        grid=grid,
-        initial_arrays=initial_arrays,
-        train_config=ConfigRecord({"lr": LEARNING_RATE}),
-        num_rounds=NUM_SERVER_ROUNDS,
-        evaluate_fn=global_evaluate,
-    )
-
-    final_state = result.arrays.to_torch_state_dict()
-
-    with model_lock:
-        global_model.load_state_dict(final_state)
-
-    torch.save(final_state, final_model_path)
-
-    print("\n✅ ===============================")
-    print("✅ TRAINING FINISHED")
-    print("📦 Model saved:", final_model_path)
-    print("✅ ===============================\n")
+    return avg_weights
 
 
 # =========================
-# GLOBAL EVALUATION
-# =========================
-def global_evaluate(server_round: int, arrays: ArrayRecord) -> MetricRecord:
-
-    model = Net()
-    model.load_state_dict(arrays.to_torch_state_dict())
-
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model.to(device)
-    model.eval()
-
-    num_samples = 200
-    input_dim = 7
-
-    X_test = torch.randn(num_samples, input_dim)
-    y_test = torch.randint(0, 2, (num_samples,))
-
-    test_loader = DataLoader(
-        TensorDataset(X_test, y_test),
-        batch_size=32,
-        shuffle=False
-    )
-
-    loss, acc = test(model, test_loader, device)
-
-    # 🔥 IMPORTANT LOG (Render)
-    print(f"[FL ROUND {server_round}] LOSS={loss:.4f} ACC={acc:.4f}")
-
-    # debug évolution modèle
-    print("MODEL SUM:", sum(p.sum().item() for p in model.parameters()))
-
-    with metrics_lock:
-        metrics_history.append({
-            "round": server_round,
-            "loss": float(loss),
-            "accuracy": float(acc),
-        })
-
-    return MetricRecord({
-        "loss": loss,
-        "accuracy": acc
-    })
-
-
-# =========================
-# FLASK API
+# FLASK APP
 # =========================
 app = Flask(__name__)
 
 
 @app.route("/")
 def home():
-    print("🌐 API HIT /")
-    return "Flower FL Server running 🚀"
+    return "🔥 Manual FL Server (FedAvg) Running"
 
 
-@app.route("/get_model")
-def get_model():
-    print("📥 API HIT get_model")
-
-    with model_lock:
-        buffer = io.BytesIO()
-        torch.save(global_model.state_dict(), buffer)
-        buffer.seek(0)
-
-    return send_file(buffer, as_attachment=True, download_name="global_model.pt")
-
-
-@app.route("/final_model")
-def final_model():
-    print("📦 API HIT final_model")
-
-    if not os.path.exists(final_model_path):
-        return jsonify({"error": "Model not trained yet"}), 404
-
-    return send_file(final_model_path, as_attachment=True)
-
-
+# =========================
+# SUBMIT WEIGHTS
+# =========================
 @app.route("/submit_weights", methods=["POST"])
 def submit_weights():
+    global client_weights_buffer
 
-    print("📤 API HIT submit_weights")
+    print("📤 Received client weights")
 
     try:
-        auth_header = request.headers.get("Authorization", "")
-
-        if not auth_header.startswith("Bearer "):
-            return jsonify({"error": "Missing token"}), 401
-
-        token = auth_header.split(" ")[1]
-
+        token = request.headers.get("Authorization", "").replace("Bearer ", "")
         if token != FL_CLIENT_TOKEN:
             return jsonify({"error": "Invalid token"}), 401
 
@@ -191,44 +79,77 @@ def submit_weights():
             return jsonify({"error": "Missing file"}), 400
 
         file = request.files["weights"]
-        buffer = io.BytesIO(file.read())
+        state_dict = torch.load(io.BytesIO(file.read()), map_location="cpu")
 
-        state = torch.load(buffer, map_location="cpu")
+        with buffer_lock:
+            client_weights_buffer.append(state_dict)
 
-        # 🔥 DEBUG important
-        print("✔ Weights received")
-        print("✔ Keys:", list(state.keys())[:3])
+        print(f"✔ Stored weights: {len(client_weights_buffer)}")
 
-        return jsonify({
-            "message": "Weights received",
-            "mode": "Flower handles training"
-        }), 200
+        # =========================
+        # WHEN ALL CLIENTS ARRIVE → AGGREGATE
+        # =========================
+        if len(client_weights_buffer) >= NUM_CLIENTS_EXPECTED:
+
+            print("🔥 Aggregating FedAvg...")
+
+            new_global = fedavg(client_weights_buffer)
+
+            with model_lock:
+                global_model.load_state_dict(new_global)
+
+            torch.save(new_global, final_model_path)
+
+            print("✅ Global model updated")
+
+            client_weights_buffer = []  # reset buffer
+
+        return jsonify({"message": "weights received"}), 200
 
     except Exception as e:
         print("❌ ERROR:", e)
         return jsonify({"error": str(e)}), 500
 
 
-@app.route("/metrics")
-def metrics():
-    print("📊 API HIT metrics")
+# =========================
+# GET MODEL
+# =========================
+@app.route("/get_model")
+def get_model():
+    with model_lock:
+        buffer = io.BytesIO()
+        torch.save(global_model.state_dict(), buffer)
+        buffer.seek(0)
 
-    with metrics_lock:
-        return jsonify(metrics_history)
+    return send_file(buffer, download_name="global_model.pt", as_attachment=True)
+
+
+# =========================
+# FINAL MODEL
+# =========================
+@app.route("/final_model")
+def final_model():
+    if not os.path.exists(final_model_path):
+        return jsonify({"error": "Model not trained yet"}), 404
+
+    return send_file(final_model_path, as_attachment=True)
+
+
+# =========================
+# STATUS
+# =========================
+@app.route("/status")
+def status():
+    return jsonify({
+        "clients_received": len(client_weights_buffer),
+        "expected_clients": NUM_CLIENTS_EXPECTED,
+        "model_saved": os.path.exists(final_model_path)
+    })
 
 
 # =========================
 # RUN
 # =========================
-def run_flower():
-    flwr_app.main()
-
-
 if __name__ == "__main__":
-
-    print("🔥 STARTING SERVER (FL + API)")
-
-    # ⚠️ IMPORTANT: Render stability fix
-    run_flower()
-
+    print("🔥 Starting FedAvg server...")
     app.run(host="0.0.0.0", port=PORT)
