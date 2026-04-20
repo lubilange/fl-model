@@ -6,6 +6,7 @@ import io
 import os
 import random
 import plotly.graph_objects as go
+
 from authexample.task import Net, train, test
 from supabase import create_client, Client
 from torch.utils.data import DataLoader, TensorDataset
@@ -13,52 +14,45 @@ from torch.utils.data import DataLoader, TensorDataset
 # =========================
 # CONFIG
 # =========================
-st.set_page_config(page_title="WP4 FL Dashboard", layout="wide")
-st.title("Dashboard + Federated Learning ")
+st.set_page_config(page_title="WP4 FL Client", layout="wide")
+st.title("Federated Learning Client (Streamlit)")
 
 SERVER_URL = "https://fl-model.onrender.com"
 
 # =========================
 # SUPABASE
 # =========================
-SUPABASE_URL = st.secrets["SUPABASE_URL"]
-SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
-
-supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+supabase: Client = create_client(
+    st.secrets["SUPABASE_URL"],
+    st.secrets["SUPABASE_KEY"]
+)
 
 # =========================
 # SESSION STATE
 # =========================
+if "model" not in st.session_state:
+    st.session_state.model = None
+
 if "model_loaded" not in st.session_state:
-    st.session_state["model_loaded"] = False
+    st.session_state.model_loaded = False
 
 if "trained" not in st.session_state:
-    st.session_state["trained"] = False
+    st.session_state.trained = False
 
 if "metrics" not in st.session_state:
-    st.session_state["metrics"] = {}
-
-if "history" not in st.session_state:
-    st.session_state["history"] = []
-
+    st.session_state.metrics = {}
 
 # =========================
-# SUPABASE SAFE FETCH
+# SAFE FETCH
 # =========================
 def safe_fetch(table):
     try:
         return supabase.table(table).select("*").execute().data or []
     except:
         return []
-# =========================
-# DATA SOURCES (COHERENT WITH YOUR BACKEND)
-# =========================
+
 patients = pd.DataFrame(safe_fetch("patients"))
-conditions = pd.DataFrame(safe_fetch("conditions"))
-observations = pd.DataFrame(safe_fetch("observations"))
-treatments = pd.DataFrame(safe_fetch("treatments"))
-adherence_logs = pd.DataFrame(safe_fetch("adherence_logs"))
-nurses = pd.DataFrame(safe_fetch("nurses"))
+
 # =========================
 # DATA LOADER
 # =========================
@@ -72,30 +66,30 @@ def create_dataloader_from_df(df, batch_size=32):
 # =========================
 menu = st.sidebar.selectbox(
     "Navigation",
-    ["Entraînement FL", "Dashboard Clinique", "Dashboard Recherche"]
+    ["FL Client Training", "Dashboard"]
 )
 
 # =========================================================
-# 🏠 TRAINING FL
+# 🏠 FL CLIENT
 # =========================================================
-if menu == "Entraînement FL":
+if menu == "FL Client Training":
 
     uploaded_file = st.file_uploader("📂 Dataset CSV", type="csv")
 
     if uploaded_file:
-        df = __import__("pandas").read_csv(uploaded_file)
+        df = pd.read_csv(uploaded_file)
         st.dataframe(df.head())
+
         col1, col2, col3 = st.columns(3)
 
         with col1:
             batch_size = st.number_input("Batch size", 1, value=16)
 
         with col2:
-            epochs = st.number_input("Epochs", 1, value=5)
+            epochs = st.number_input("Local epochs", 1, value=5)
 
         with col3:
-            lr = st.number_input("Learning rate", value=0.001, format="%.3f")
-
+            lr = st.number_input("Learning rate", value=0.001, format="%.4f")
 
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         dataloader = create_dataloader_from_df(df, batch_size)
@@ -103,7 +97,7 @@ if menu == "Entraînement FL":
         # =========================
         # GET GLOBAL MODEL
         # =========================
-        if st.button("📥 Télécharger modèle global"):
+        if st.button("📥 Load global model"):
             try:
                 r = requests.get(f"{SERVER_URL}/get_model", timeout=20)
                 r.raise_for_status()
@@ -117,18 +111,18 @@ if menu == "Entraînement FL":
                 st.session_state.model_loaded = True
                 st.session_state.trained = False
 
-                st.success("Modèle global chargé ✔")
+                st.success("Global model loaded ✔")
 
             except Exception as e:
-                st.error(f"Erreur serveur: {e}")
+                st.error(f"Server error: {e}")
 
         # =========================
-        # TRAIN LOCAL
+        # LOCAL TRAINING (CLIENT SIDE ONLY)
         # =========================
-        if st.button("🧠 Entraîner"):
+        if st.button("🧠 Train locally"):
 
             if not st.session_state.model_loaded:
-                st.warning("Charge d'abord le modèle global")
+                st.warning("Load global model first")
             else:
                 model = st.session_state.model
 
@@ -147,44 +141,7 @@ if menu == "Entraînement FL":
                 st.success(f"Loss: {loss:.4f}")
                 st.info(f"Accuracy: {acc:.4f}")
 
-        # =========================
-        # SEND WEIGHTS
-        # =========================
-        if st.button("📤 Envoyer poids (FL)"):
-
-            if not st.session_state.trained:
-                st.error("Entraîne d'abord le modèle")
-            else:
-                buffer = io.BytesIO()
-                torch.save(st.session_state.model.state_dict(), buffer)
-                buffer.seek(0)
-
-                files = {"weights": ("client.pt", buffer)}
-
-                TOKEN = os.environ.get("FL_CLIENT_TOKEN", "SHARED_TOKEN")
-                headers = {"Authorization": f"Bearer {TOKEN}"}
-
-                try:
-                    r = requests.post(
-                        f"{SERVER_URL}/submit_weights",
-                        files=files,
-                        headers=headers,
-                        timeout=30
-                    )
-
-                    if r.status_code == 200:
-                        st.success("✔ Poids envoyés au serveur FL")
-                        st.json(r.json())
-
-                        st.info("Aggregation gérée automatiquement par Flower côté serveur")
-
-                        st.session_state.trained = False
-
-                    else:
-                        st.error(r.text)
-
-                except Exception as e:
-                    st.error(f"Erreur réseau: {e}")
+                st.warning("👉 In Flower, weights are sent automatically by client protocol (not Flask)")
 # =========================================================
 # 📊 CLINICAL DASHBOARD (REAL + AI + ANALYTICS)
 # =========================================================
