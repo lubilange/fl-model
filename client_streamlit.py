@@ -12,7 +12,9 @@ from authexample.task import Net, train, test
 st.set_page_config(page_title="FL Client", layout="wide")
 st.title("Federated Learning Client (Flower)")
 
-SERVER_ADDRESS = "fl-model.onrender.com:8080"
+# ⚠️ IMPORTANT: PAS de https ici
+SERVER_ADDRESS = "localhost:8080"   # 👉 en local
+# SERVER_ADDRESS = "IP_PUBLIC:8080" # 👉 en production
 
 # =========================
 # DATA LOADER
@@ -35,7 +37,7 @@ class FLClient(fl.client.NumPyClient):
         self.lr = lr
 
     def get_parameters(self, config):
-        return [val.cpu().numpy() for val in self.model.state_dict().values()]
+        return [val.detach().cpu().numpy() for val in self.model.state_dict().values()]
 
     def set_parameters(self, parameters):
         params_dict = zip(self.model.state_dict().keys(), parameters)
@@ -43,7 +45,11 @@ class FLClient(fl.client.NumPyClient):
         self.model.load_state_dict(state_dict, strict=True)
 
     def fit(self, parameters, config):
+        print("📥 Receiving global model...")
+
         self.set_parameters(parameters)
+
+        print("🧠 Training locally...")
 
         loss = train(
             self.model,
@@ -53,7 +59,13 @@ class FLClient(fl.client.NumPyClient):
             self.device
         )
 
-        return self.get_parameters(config), len(self.trainloader.dataset), {"loss": float(loss)}
+        print("📤 Sending updated weights...")
+
+        return (
+            self.get_parameters(config),
+            len(self.trainloader.dataset),
+            {"loss": float(loss)},
+        )
 
     def evaluate(self, parameters, config):
         self.set_parameters(parameters)
@@ -91,7 +103,7 @@ if uploaded_file:
     if st.button("🚀 Start Federated Learning"):
 
         try:
-            st.info("Connecting to Flower server...")
+            st.info("🔌 Connecting to Flower server (gRPC)...")
 
             trainloader = create_dataloader_from_df(df, batch_size)
             model = Net().to(device)
@@ -103,7 +115,7 @@ if uploaded_file:
                 client=client,
             )
 
-            st.success("Training finished ✔")
+            st.success("✅ Training finished")
 
         except Exception as e:
-            st.error(f"Error: {e}")
+            st.error(f"❌ Error: {e}")
