@@ -1,57 +1,18 @@
 import streamlit as st
 import pandas as pd
 import torch
-import requests
-import io
-import os
-import random
-import plotly.graph_objects as go
+import flwr as fl
 
-from authexample.task import Net, train, test
-from supabase import create_client, Client
 from torch.utils.data import DataLoader, TensorDataset
+from authexample.task import Net, train, test
 
 # =========================
 # CONFIG
 # =========================
-st.set_page_config(page_title="WP4 FL Client", layout="wide")
-st.title("Federated Learning Client (Streamlit)")
+st.set_page_config(page_title="FL Client", layout="wide")
+st.title("Federated Learning Client (Flower)")
 
-SERVER_URL = "https://fl-model.onrender.com"
-
-# =========================
-# SUPABASE
-# =========================
-supabase: Client = create_client(
-    st.secrets["SUPABASE_URL"],
-    st.secrets["SUPABASE_KEY"]
-)
-
-# =========================
-# SESSION STATE
-# =========================
-if "model" not in st.session_state:
-    st.session_state.model = None
-
-if "model_loaded" not in st.session_state:
-    st.session_state.model_loaded = False
-
-if "trained" not in st.session_state:
-    st.session_state.trained = False
-
-if "metrics" not in st.session_state:
-    st.session_state.metrics = {}
-
-# =========================
-# SAFE FETCH
-# =========================
-def safe_fetch(table):
-    try:
-        return supabase.table(table).select("*").execute().data or []
-    except:
-        return []
-
-patients = pd.DataFrame(safe_fetch("patients"))
+SERVER_ADDRESS = "fl-model.onrender.com:8080"
 
 # =========================
 # DATA LOADER
@@ -62,211 +23,87 @@ def create_dataloader_from_df(df, batch_size=32):
     return DataLoader(TensorDataset(X, y), batch_size=batch_size, shuffle=True)
 
 # =========================
-# UI
+# FLOWER CLIENT
 # =========================
-menu = st.sidebar.selectbox(
-    "Navigation",
-    ["FL Client Training", "Dashboard"]
-)
+class FLClient(fl.client.NumPyClient):
 
-# =========================================================
-# 🏠 FL CLIENT
-# =========================================================
-if menu == "FL Client Training":
+    def __init__(self, model, trainloader, device, epochs, lr):
+        self.model = model
+        self.trainloader = trainloader
+        self.device = device
+        self.epochs = epochs
+        self.lr = lr
 
-    uploaded_file = st.file_uploader("📂 Dataset CSV", type="csv")
+    def get_parameters(self, config):
+        return [val.cpu().numpy() for val in self.model.state_dict().values()]
 
-    if uploaded_file:
-        df = pd.read_csv(uploaded_file)
-        st.dataframe(df.head())
+    def set_parameters(self, parameters):
+        params_dict = zip(self.model.state_dict().keys(), parameters)
+        state_dict = {k: torch.tensor(v) for k, v in params_dict}
+        self.model.load_state_dict(state_dict, strict=True)
 
-        col1, col2, col3 = st.columns(3)
+    def fit(self, parameters, config):
+        self.set_parameters(parameters)
 
-        with col1:
-            batch_size = st.number_input("Batch size", 1, value=16)
-
-        with col2:
-            epochs = st.number_input("Local epochs", 1, value=5)
-
-        with col3:
-            lr = st.number_input("Learning rate", value=0.001, format="%.4f")
-
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        dataloader = create_dataloader_from_df(df, batch_size)
-
-        # =========================
-        # GET GLOBAL MODEL
-        # =========================
-        if st.button("📥 Load global model"):
-            try:
-                r = requests.get(f"{SERVER_URL}/get_model", timeout=20)
-                r.raise_for_status()
-
-                state = torch.load(io.BytesIO(r.content), map_location=device)
-
-                model = Net().to(device)
-                model.load_state_dict(state)
-
-                st.session_state.model = model
-                st.session_state.model_loaded = True
-                st.session_state.trained = False
-
-                st.success("Global model loaded ✔")
-
-            except Exception as e:
-                st.error(f"Server error: {e}")
-
-        # =========================
-        # LOCAL TRAINING (CLIENT SIDE ONLY)
-        # =========================
-        if st.button("🧠 Train locally"):
-
-            if not st.session_state.model_loaded:
-                st.warning("Load global model first")
-            else:
-                model = st.session_state.model
-
-                loss = train(model, dataloader, epochs, lr, device)
-                test_loss, acc = test(model, dataloader, device)
-
-                st.session_state.metrics = {
-                    "loss": loss,
-                    "test_loss": test_loss,
-                    "accuracy": acc,
-                    "dataset_size": len(df)
-                }
-
-                st.session_state.trained = True
-
-                st.success(f"Loss: {loss:.4f}")
-                st.info(f"Accuracy: {acc:.4f}")
-
-                st.warning("👉 In Flower, weights are sent automatically by client protocol (not Flask)")
-# =========================================================
-# 📊 CLINICAL DASHBOARD (REAL + AI + ANALYTICS)
-# =========================================================
-
-elif menu == "Dashboard Clinique":
-
-    st.subheader("🏥Vue clinique en temps réel")
-
-    # ================= KPI =================
-    col1, col2, col3 = st.columns(3)
-
-    col1.metric("👥 Patients", len(patients))
-    col2.metric("🧾 Conditions FHIR", len(conditions))
-    col3.metric("🩺 Symptômes", len(observations))
-
-    st.divider()
-
-
-    # ================= TRIAGE =================
-    st.markdown("### 🚨 Niveau d'alerte")
-
-    if not conditions.empty:
-        st.bar_chart(conditions["severity"].value_counts())
-
-    st.divider()
-
-    # ================= TENDANCE =================
-    st.markdown("### 📈 Répartition des symptômes")
-
-    if not observations.empty and "severity" in observations.columns:
-
-        trend = observations["severity"].value_counts().reset_index()
-        trend.columns = ["severity", "count"]
-
-        st.bar_chart(trend.set_index("severity"))
-
-    st.divider()
-
-    # ================= SUPPORT =================
-    st.markdown("### 👩‍⚕️ Support infirmier")
-
-    if not nurses.empty:
-        st.bar_chart(nurses["status"].value_counts())
-
-    st.divider()
-
-    # ================= SIMULATION =================
-    st.markdown("###  cas de simulations")
-
-    sim = pd.DataFrame([
-        {"glycémie": 4.5, "niveau": "normal"},
-        {"glycémie": 8.2, "niveau": "élevé"},
-        {"glycémie": 6.8, "niveau": "modéré"}
-    ])
-
-    sim["prediction"] = sim["glycémie"].apply(lambda x: "élevé" if x > 7 else "normal")
-
-    st.dataframe(sim)
-# =========================================================
-# 📈 RESEARCH DASHBOARD (BI)
-# =========================================================
-elif menu == "Dashboard Recherche":
-
-    st.subheader("Graphique pour Recherche Analytique")
-
-    # =========================
-    # 1. COHORTE PATIENTS
-    # =========================
-    st.markdown("### Répartition patients")
-
-    if not patients.empty:
-        gender_dist = patients["gender"].value_counts()
-
-        st.bar_chart(gender_dist)
-
-        st.write("Distribution patients par genre")
-    else:
-        st.info("Aucun patient")
-
-    # =========================
-    # 2. RISQUE CLINIQUE (conditions backend)
-    # =========================
-    st.markdown("###  Répartition des risques")
-
-    if not conditions.empty:
-        risk_dist = conditions["severity"].value_counts()
-
-        fig = go.Figure()
-        fig.add_trace(go.Pie(
-            labels=risk_dist.index,
-            values=risk_dist.values
-        ))
-
-        st.plotly_chart(fig, use_container_width=True)
-    else:
-        st.info("Aucune condition")
-
-# =========================================================
-# 🔬 EXPORT ANONYMIZED
-# =========================================================
-elif menu == "Export Anonymisé":
-
-    st.subheader("Export des performances FL")
-
-    metrics = st.session_state.get("metrics", {})
-
-    if metrics:
-
-        export = pd.DataFrame([{
-            "id": "RECH_" + str(random.randint(1000, 9999)),
-            "accuracy": metrics["accuracy"],
-            "loss": metrics["loss"],
-            "dataset_size": metrics["dataset_size"]
-        }])
-
-        st.dataframe(export)
-
-        csv = export.to_csv(index=False).encode("utf-8")
-
-        st.download_button(
-            "⬇️ Télécharger export",
-            csv,
-            "wp4_export.csv",
-            "text/csv"
+        loss = train(
+            self.model,
+            self.trainloader,
+            self.epochs,
+            self.lr,
+            self.device
         )
 
-    else:
-        st.info("Aucune donnée disponible")
+        return self.get_parameters(config), len(self.trainloader.dataset), {"loss": float(loss)}
+
+    def evaluate(self, parameters, config):
+        self.set_parameters(parameters)
+
+        loss, acc = test(self.model, self.trainloader, self.device)
+
+        return float(loss), len(self.trainloader.dataset), {"accuracy": float(acc)}
+
+# =========================
+# UI
+# =========================
+uploaded_file = st.file_uploader("📂 Upload CSV dataset", type="csv")
+
+if uploaded_file:
+
+    df = pd.read_csv(uploaded_file)
+    st.dataframe(df.head())
+
+    col1, col2, col3 = st.columns(3)
+
+    with col1:
+        batch_size = st.number_input("Batch size", 1, value=16)
+
+    with col2:
+        epochs = st.number_input("Local epochs", 1, value=3)
+
+    with col3:
+        lr = st.number_input("Learning rate", value=0.001, format="%.4f")
+
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    # =========================
+    # START FLOWER CLIENT
+    # =========================
+    if st.button("🚀 Start Federated Learning"):
+
+        try:
+            st.info("Connecting to Flower server...")
+
+            trainloader = create_dataloader_from_df(df, batch_size)
+            model = Net().to(device)
+
+            client = FLClient(model, trainloader, device, epochs, lr)
+
+            fl.client.start_numpy_client(
+                server_address=SERVER_ADDRESS,
+                client=client,
+            )
+
+            st.success("Training finished ✔")
+
+        except Exception as e:
+            st.error(f"Error: {e}")
