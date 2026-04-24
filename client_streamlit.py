@@ -178,7 +178,7 @@ elif menu == "Dashboard Recherche":
 # 🔬 EXPORT ANONYMISÉ (NOUVEAU)
 # =========================================================
 elif menu == "Export Anonymisé":
-    st.subheader("📤 Export anonymisé pour analyses")
+    st.subheader("Export anonymisé pour analyses")
 
     # Construction d'un DataFrame agrégé avec des statistiques non identifiantes
     data = []
@@ -224,7 +224,7 @@ elif menu == "Export Anonymisé":
     # Téléchargement CSV
     csv = df_export.to_csv(index=False).encode("utf-8")
     st.download_button(
-        label="⬇️ Télécharger l'export anonymisé (CSV)",
+        label="Télécharger l'export anonymisé (CSV)",
         data=csv,
         file_name="export_anonymise.csv",
         mime="text/csv"
