@@ -27,12 +27,10 @@ st.markdown("""
         font-family: 'Poppins', sans-serif;
     }
 
-    /* Fond général clair */
     .main {
         background-color: #eef1f5;
     }
 
-    /* Sidebar façon image */
     section[data-testid="stSidebar"] {
         background-color: #1e3c5a;
     }
@@ -40,7 +38,6 @@ st.markdown("""
         color: white !important;
     }
 
-    /* Cartes blanches avec ombre */
     .card {
         background: white;
         padding: 20px;
@@ -50,7 +47,6 @@ st.markdown("""
         margin-bottom: 10px;
     }
 
-    /* Titres */
     h1, h2, h3 {
         color: #1e3c5a;
     }
@@ -81,13 +77,14 @@ if "history" not in st.session_state:
     st.session_state["history"] = []
 
 # =========================
-# MENU (style sidebar)
+# MENU
 # =========================
 menu = st.sidebar.radio(
     " Menu",
     [
         "Dashboard Clinique",
-        "Dashboard Recherche"
+        "Dashboard Recherche",
+        "Export Anonymisé"           # <-- Ajouté
     ]
 )
 
@@ -113,7 +110,6 @@ nurses = pd.DataFrame(safe_fetch("nurses"))
 if menu == "Dashboard Clinique":
     st.subheader("🏥 Vue clinique en temps réel")
 
-    # KPIs sous forme de cartes
     col1, col2, col3 = st.columns(3)
     with col1:
         st.markdown(f'<div class="card"><h3>👥 Patients</h3><h2>{len(patients)}</h2></div>', unsafe_allow_html=True)
@@ -124,14 +120,12 @@ if menu == "Dashboard Clinique":
 
     st.divider()
 
-    # ================= TRIAGE =================
     st.markdown("### 🚨 Niveau d'alerte")
     if not conditions.empty:
         st.bar_chart(conditions["severity"].value_counts())
 
     st.divider()
 
-    # ================= TENDANCE =================
     st.markdown("### 📈 Répartition des symptômes")
     if not observations.empty and "severity" in observations.columns:
         trend = observations["severity"].value_counts().reset_index()
@@ -140,14 +134,12 @@ if menu == "Dashboard Clinique":
 
     st.divider()
 
-    # ================= SUPPORT =================
     st.markdown("### 👩‍⚕️ Support infirmier")
     if not nurses.empty:
         st.bar_chart(nurses["status"].value_counts())
 
     st.divider()
 
-    # ================= SIMULATION =================
     st.markdown("###  cas de simulations")
     sim = pd.DataFrame([
         {"glycémie": 4.5, "niveau": "normal"},
@@ -181,3 +173,59 @@ elif menu == "Dashboard Recherche":
         st.plotly_chart(fig, use_container_width=True)
     else:
         st.info("Aucune condition")
+
+# =========================================================
+# 🔬 EXPORT ANONYMISÉ (NOUVEAU)
+# =========================================================
+elif menu == "Export Anonymisé":
+    st.subheader("📤 Export anonymisé pour analyses")
+
+    # Construction d'un DataFrame agrégé avec des statistiques non identifiantes
+    data = []
+
+    # Patients
+    data.append({"Catégorie": "Patients", "Indicateur": "Nombre total", "Valeur": len(patients)})
+    if not patients.empty and "gender" in patients.columns:
+        for genre, nb in patients["gender"].value_counts().items():
+            data.append({"Catégorie": "Patients", "Indicateur": f"Genre {genre}", "Valeur": nb})
+
+    # Observations
+    data.append({"Catégorie": "Observations", "Indicateur": "Nombre total", "Valeur": len(observations)})
+    if not observations.empty and "severity" in observations.columns:
+        for sev, nb in observations["severity"].value_counts().items():
+            data.append({"Catégorie": "Observations", "Indicateur": f"Sévérité {sev}", "Valeur": nb})
+
+    # Conditions
+    data.append({"Catégorie": "Conditions", "Indicateur": "Nombre total", "Valeur": len(conditions)})
+    if not conditions.empty and "severity" in conditions.columns:
+        for sev, nb in conditions["severity"].value_counts().items():
+            data.append({"Catégorie": "Conditions", "Indicateur": f"Sévérité {sev}", "Valeur": nb})
+
+    # Infirmiers
+    data.append({"Catégorie": "Infirmiers", "Indicateur": "Nombre total", "Valeur": len(nurses)})
+    if not nurses.empty and "status" in nurses.columns:
+        for stat, nb in nurses["status"].value_counts().items():
+            data.append({"Catégorie": "Infirmiers", "Indicateur": f"Statut {stat}", "Valeur": nb})
+
+    # Adhésion (adherence_logs)
+    data.append({"Catégorie": "Adhésion", "Indicateur": "Nombre total de logs", "Valeur": len(adherence_logs)})
+    if not adherence_logs.empty and "status" in adherence_logs.columns:
+        for stat, nb in adherence_logs["status"].value_counts().items():
+            data.append({"Catégorie": "Adhésion", "Indicateur": f"Statut {stat}", "Valeur": nb})
+
+    # Traitements
+    data.append({"Catégorie": "Traitements", "Indicateur": "Nombre total", "Valeur": len(treatments)})
+
+    df_export = pd.DataFrame(data)
+
+    # Affichage du tableau
+    st.dataframe(df_export, use_container_width=True)
+
+    # Téléchargement CSV
+    csv = df_export.to_csv(index=False).encode("utf-8")
+    st.download_button(
+        label="⬇️ Télécharger l'export anonymisé (CSV)",
+        data=csv,
+        file_name="export_anonymise.csv",
+        mime="text/csv"
+    )
