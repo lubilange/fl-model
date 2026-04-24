@@ -81,7 +81,7 @@ if "history" not in st.session_state:
     st.session_state["history"] = []
 
 # =========================
-# MENU (style sidebar demandé)
+# MENU (style sidebar)
 # =========================
 menu = st.sidebar.radio(
     " Menu",
@@ -107,11 +107,13 @@ treatments = pd.DataFrame(safe_fetch("treatments"))
 adherence_logs = pd.DataFrame(safe_fetch("adherence_logs"))
 nurses = pd.DataFrame(safe_fetch("nurses"))
 
-# DASHBOARD CLINIQUE 
-elif menu == "Dashboard Clinique":
+# =========================================================
+# 📊 DASHBOARD CLINIQUE
+# =========================================================
+if menu == "Dashboard Clinique":
     st.subheader("🏥 Vue clinique en temps réel")
 
-    # KPIs sous forme de cartes (style, pas de contenu factice)
+    # KPIs sous forme de cartes
     col1, col2, col3 = st.columns(3)
     with col1:
         st.markdown(f'<div class="card"><h3>👥 Patients</h3><h2>{len(patients)}</h2></div>', unsafe_allow_html=True)
@@ -145,7 +147,7 @@ elif menu == "Dashboard Clinique":
 
     st.divider()
 
-    # SIMULATION
+    # ================= SIMULATION =================
     st.markdown("###  cas de simulations")
     sim = pd.DataFrame([
         {"glycémie": 4.5, "niveau": "normal"},
@@ -179,8 +181,3 @@ elif menu == "Dashboard Recherche":
         st.plotly_chart(fig, use_container_width=True)
     else:
         st.info("Aucune condition")
-
-# =========================================================
-# 🔬 EXPORT ANONYMIZED
-# =========================================================
-
