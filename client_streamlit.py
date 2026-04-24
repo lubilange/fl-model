@@ -17,22 +17,19 @@ from torch.utils.data import DataLoader, TensorDataset
 # =========================
 st.set_page_config(page_title="WP4 FL Dashboard", layout="wide")
 
-# --- AJOUT STYLE IMAGE : CSS personnalisé pour reproduire le design ---
+# --- STYLE GLOBAL (CSS, icônes, polices) ---
 st.markdown("""
 <style>
-    /* Import de la police (similaire à l'image) */
     @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600;700&display=swap');
 
     html, body, [class*="css"] {
         font-family: 'Poppins', sans-serif;
     }
 
-    /* Fond général plus clair */
     .main {
         background-color: #f7f8fc;
     }
 
-    /* Cartes avec fond blanc, ombre, coins arrondis */
     .metric-card {
         background: white;
         border-radius: 20px;
@@ -56,7 +53,7 @@ st.markdown("""
         font-size: 24px;
         margin-bottom: 5px;
     }
-    /* Barre latérale */
+
     [data-testid="stSidebar"] {
         background-color: #1e1e2f;
         color: white;
@@ -68,58 +65,8 @@ st.markdown("""
     [data-testid="stSidebar"] .stSelectbox div {
         color: white !important;
     }
-    .sidebar-menu {
-        display: flex;
-        flex-wrap: wrap;
-        justify-content: space-around;
-        margin-top: 30px;
-    }
-    .sidebar-menu a {
-        color: #cfcfdf;
-        text-decoration: none;
-        font-size: 20px;
-        padding: 10px;
-        border-radius: 12px;
-        transition: 0.2s;
-    }
-    .sidebar-menu a:hover {
-        background-color: #2e2e4d;
-    }
-    /* Section profil */
-    .profile-box {
-        display: flex;
-        align-items: center;
-        gap: 15px;
-        background: white;
-        border-radius: 20px;
-        padding: 15px 25px;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.05);
-        margin-bottom: 20px;
-    }
-    .profile-avatar {
-        width: 55px;
-        height: 55px;
-        background: linear-gradient(135deg, #6c5ce7, #a29bfe);
-        border-radius: 50%;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        color: white;
-        font-weight: 700;
-        font-size: 24px;
-    }
-    .profile-name {
-        font-weight: 600;
-        font-size: 18px;
-        color: #2e2e4d;
-    }
-    .profile-email {
-        font-size: 13px;
-        color: #7d7d9e;
-    }
 </style>
 """, unsafe_allow_html=True)
-# --- FIN AJOUT STYLE IMAGE ---
 
 st.title("Dashboard + Federated Learning ")
 
@@ -130,7 +77,6 @@ SERVER_URL = "https://fl-model.onrender.com"
 # =========================
 SUPABASE_URL = st.secrets["SUPABASE_URL"]
 SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
-
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 # =========================
@@ -146,7 +92,7 @@ if "history" not in st.session_state:
     st.session_state["history"] = []
 
 # =========================
-# MENU (RESTORED + CLEAN)
+# MENU
 # =========================
 menu = st.sidebar.selectbox(
     "Navigation",
@@ -158,14 +104,16 @@ menu = st.sidebar.selectbox(
     ]
 )
 
-# --- AJOUT STYLE IMAGE : Menu rapide avec icônes dans la sidebar ---
+# Barre d’icônes rapide (style image) – aucun contenu factice, juste le style
 st.sidebar.markdown("### Menu rapide")
 cols_icons = st.sidebar.columns(6)
 icon_list = ["🏠", "📁", "💬", "🔔", "📍", "📊"]
 for i, icon in enumerate(icon_list):
     with cols_icons[i]:
-        st.markdown(f"<div style='text-align:center; font-size:20px; padding:5px; cursor:pointer;'>{icon}</div>", unsafe_allow_html=True)
-# --- FIN AJOUT STYLE IMAGE ---
+        st.markdown(
+            f"<div style='text-align:center; font-size:20px; padding:5px;'>{icon}</div>",
+            unsafe_allow_html=True
+        )
 
 # =========================
 # SUPABASE SAFE FETCH
@@ -176,9 +124,6 @@ def safe_fetch(table):
     except:
         return []
 
-# =========================
-# DATA SOURCES
-# =========================
 patients = pd.DataFrame(safe_fetch("patients"))
 conditions = pd.DataFrame(safe_fetch("conditions"))
 observations = pd.DataFrame(safe_fetch("observations"))
@@ -187,7 +132,7 @@ adherence_logs = pd.DataFrame(safe_fetch("adherence_logs"))
 nurses = pd.DataFrame(safe_fetch("nurses"))
 
 # =========================
-# FL UTILS (inchangées)
+# FL UTILS
 # =========================
 def create_dataloader_from_df(df, batch_size=32):
     X = torch.tensor(df.iloc[:, :-1].values, dtype=torch.float32)
@@ -227,7 +172,7 @@ def test_fn(model, dataloader, device):
     return loss / len(dataloader), acc
 
 # =========================================================
-# 🏠 TRAINING (ENTIÈREMENT CONSERVÉ)
+# 🏠 TRAINING (inchangé)
 # =========================================================
 if menu == "Entraînement FL":
     uploaded_file = st.file_uploader("📂 Dataset CSV", type="csv")
@@ -296,84 +241,19 @@ if menu == "Entraînement FL":
                     st.error(response.text)
 
 # =========================================================
-# 📊 DASHBOARD CLINIQUE (STYLE IMAGE INTÉGRÉ)
+# 📊 DASHBOARD CLINIQUE – VRAIS KPIs, STYLE APPLIQUÉ
 # =========================================================
 elif menu == "Dashboard Clinique":
-
-    # --- AJOUT STYLE IMAGE : Section supérieure avec métriques et profil ---
     st.subheader("🏥 Vue clinique en temps réel")
 
-    # 4 cartes de métriques (données fictives pour le style)
-    col1, col2, col3, col4 = st.columns(4)
-    with col1:
-        st.markdown("""
-        <div class="metric-card">
-            <div class="metric-icon">💰</div>
-            <div class="metric-value">$ 628</div>
-            <div class="metric-label">Earning</div>
-        </div>
-        """, unsafe_allow_html=True)
-    with col2:
-        st.markdown("""
-        <div class="metric-card">
-            <div class="metric-icon">🔗</div>
-            <div class="metric-value">2434</div>
-            <div class="metric-label">Share</div>
-        </div>
-        """, unsafe_allow_html=True)
-    with col3:
-        st.markdown("""
-        <div class="metric-card">
-            <div class="metric-icon">❤️</div>
-            <div class="metric-value">1259</div>
-            <div class="metric-label">Likes</div>
-        </div>
-        """, unsafe_allow_html=True)
-    with col4:
-        st.markdown("""
-        <div class="metric-card">
-            <div class="metric-icon">⭐</div>
-            <div class="metric-value">8,5</div>
-            <div class="metric-label">Rating</div>
-        </div>
-        """, unsafe_allow_html=True)
-
-    # Profil utilisateur
-    st.markdown("""
-    <div class="profile-box">
-        <div class="profile-avatar">JD</div>
-        <div>
-            <div class="profile-name">JOHN DON</div>
-            <div class="profile-email">johndon@company.com</div>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
-
-    # Graphique circulaire "Result 45%"
-    fig_result = go.Figure(go.Pie(
-        labels=["Result", ""],
-        values=[45, 55],
-        hole=0.7,
-        marker_colors=["#6c5ce7", "#f0f0f5"],
-        textinfo="none"
-    ))
-    fig_result.update_layout(
-        showlegend=False,
-        margin=dict(t=0, b=0, l=0, r=0),
-        height=200,
-        annotations=[dict(text="45%", x=0.5, y=0.5, font_size=28, showarrow=False, font_color="#2e2e4d")]
-    )
-    st.plotly_chart(fig_result, use_container_width=False, config={'displayModeBar': False})
-    st.markdown("<div style='text-align:center; font-weight:600; color:#7d7d9e;'>Result</div>", unsafe_allow_html=True)
-
-    # --- FIN AJOUT STYLE IMAGE ---
-
-    # ================= CONSERVATION DES KPIs ORIGINAUX =================
-    st.markdown("---")
+    # Les trois KPIs réels, conservés exactement comme dans ton code original
     col1, col2, col3 = st.columns(3)
-    col1.metric("👥 Patients", len(patients))
-    col2.metric("🧾 Conditions FHIR", len(conditions))
-    col3.metric("🩺 Symptômes", len(observations))
+    with col1:
+        st.metric("👥 Patients", len(patients))
+    with col2:
+        st.metric("🧾 Conditions FHIR", len(conditions))
+    with col3:
+        st.metric("🩺 Symptômes", len(observations))
 
     st.divider()
 
@@ -411,7 +291,7 @@ elif menu == "Dashboard Clinique":
     st.dataframe(sim)
 
 # =========================================================
-# 📈 DASHBOARD RECHERCHE (INCHANGÉ)
+# 📈 DASHBOARD RECHERCHE
 # =========================================================
 elif menu == "Dashboard Recherche":
     st.subheader("Graphique pour Recherche Analytique")
@@ -436,7 +316,7 @@ elif menu == "Dashboard Recherche":
         st.info("Aucune condition")
 
 # =========================================================
-# 🔬 EXPORT ANONYMIZED (INCHANGÉ)
+# 🔬 EXPORT ANONYMIZED
 # =========================================================
 elif menu == "Export Anonymisé":
     st.subheader("Export des performances FL")
