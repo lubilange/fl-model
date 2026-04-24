@@ -53,7 +53,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-st.title("Dashboard + Federated Learning ")
+
 
 SERVER_URL = "https://fl-model.onrender.com"
 
@@ -84,7 +84,7 @@ menu = st.sidebar.radio(
     [
         "Dashboard Clinique",
         "Dashboard Recherche",
-        "Export Anonymisé"           # <-- Ajouté
+        "Export Anonymisé"        
     ]
 )
 
