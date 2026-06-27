@@ -1,15 +1,8 @@
 import streamlit as st
 import pandas as pd
-import torch
-import requests
-import io
-import os
-import random
 import plotly.graph_objects as go
 
 from supabase import create_client, Client
-from authexample.task import Net
-from torch.utils.data import DataLoader, TensorDataset
 
 # =========================
 # CONFIG
@@ -52,9 +45,6 @@ st.markdown("""
     }
 </style>
 """, unsafe_allow_html=True)
-
-
-SERVER_URL = "https://fl-model.onrender.com"
 
 # =========================
 # SUPABASE
@@ -111,12 +101,24 @@ if menu == "Dashboard Clinique":
     st.subheader("🏥 Vue clinique en temps réel")
 
     col1, col2, col3 = st.columns(3)
+
     with col1:
-        st.markdown(f'<div class="card"><h3>👥 Patients</h3><h2>{len(patients)}</h2></div>', unsafe_allow_html=True)
+        st.markdown(
+            f'<div class="card"><h3>👥 Patients</h3><h2>{len(patients)}</h2></div>',
+            unsafe_allow_html=True
+        )
+
     with col2:
-        st.markdown(f'<div class="card"><h3>🧾 Conditions FHIR</h3><h2>{len(conditions)}</h2></div>', unsafe_allow_html=True)
+        st.markdown(
+            f'<div class="card"><h3>🧾 Conditions FHIR</h3><h2>{len(conditions)}</h2></div>',
+            unsafe_allow_html=True
+        )
+
     with col3:
-        st.markdown(f'<div class="card"><h3>🩺 Symptômes</h3><h2>{len(observations)}</h2></div>', unsafe_allow_html=True)
+        st.markdown(
+            f'<div class="card"><h3>🩺 Symptômes</h3><h2>{len(observations)}</h2></div>',
+            unsafe_allow_html=True
+        )
 
     st.divider()
 
@@ -152,8 +154,12 @@ if menu == "Dashboard Clinique":
         {"glycémie": 8.2, "niveau": "élevé"},
         {"glycémie": 6.8, "niveau": "modéré"}
     ])
-    sim["prediction"] = sim["glycémie"].apply(lambda x: "élevé" if x > 7 else "normal")
-    st.dataframe(sim)
+
+    sim["prediction"] = sim["glycémie"].apply(
+        lambda x: "élevé" if x > 7 else "normal"
+    )
+
+    st.dataframe(sim, use_container_width=True)
 
 # =========================================================
 # 📈 DASHBOARD RECHERCHE
@@ -172,11 +178,13 @@ elif menu == "Dashboard Recherche":
     st.markdown("### Répartition des risques")
     if not conditions.empty and "severity" in conditions.columns:
         risk_dist = conditions["severity"].value_counts()
+
         fig = go.Figure()
         fig.add_trace(go.Pie(
             labels=risk_dist.index,
             values=risk_dist.values
         ))
+
         st.plotly_chart(fig, use_container_width=True)
     else:
         st.info("Aucune condition disponible")
@@ -189,38 +197,88 @@ elif menu == "Export Anonymisé":
 
     data = []
 
-    data.append({"Catégorie": "Patients", "Indicateur": "Nombre total", "Valeur": len(patients)})
+    data.append({
+        "Catégorie": "Patients",
+        "Indicateur": "Nombre total",
+        "Valeur": len(patients)
+    })
+
     if not patients.empty and "gender" in patients.columns:
         for genre, nb in patients["gender"].value_counts().items():
-            data.append({"Catégorie": "Patients", "Indicateur": f"Genre {genre}", "Valeur": nb})
+            data.append({
+                "Catégorie": "Patients",
+                "Indicateur": f"Genre {genre}",
+                "Valeur": nb
+            })
 
-    data.append({"Catégorie": "Observations", "Indicateur": "Nombre total", "Valeur": len(observations)})
+    data.append({
+        "Catégorie": "Observations",
+        "Indicateur": "Nombre total",
+        "Valeur": len(observations)
+    })
+
     if not observations.empty and "severity" in observations.columns:
         for sev, nb in observations["severity"].value_counts().items():
-            data.append({"Catégorie": "Observations", "Indicateur": f"Sévérité {sev}", "Valeur": nb})
+            data.append({
+                "Catégorie": "Observations",
+                "Indicateur": f"Sévérité {sev}",
+                "Valeur": nb
+            })
 
-    data.append({"Catégorie": "Conditions", "Indicateur": "Nombre total", "Valeur": len(conditions)})
+    data.append({
+        "Catégorie": "Conditions",
+        "Indicateur": "Nombre total",
+        "Valeur": len(conditions)
+    })
+
     if not conditions.empty and "severity" in conditions.columns:
         for sev, nb in conditions["severity"].value_counts().items():
-            data.append({"Catégorie": "Conditions", "Indicateur": f"Sévérité {sev}", "Valeur": nb})
+            data.append({
+                "Catégorie": "Conditions",
+                "Indicateur": f"Sévérité {sev}",
+                "Valeur": nb
+            })
 
-    data.append({"Catégorie": "Infirmiers", "Indicateur": "Nombre total", "Valeur": len(nurses)})
+    data.append({
+        "Catégorie": "Infirmiers",
+        "Indicateur": "Nombre total",
+        "Valeur": len(nurses)
+    })
+
     if not nurses.empty and "status" in nurses.columns:
         for stat, nb in nurses["status"].value_counts().items():
-            data.append({"Catégorie": "Infirmiers", "Indicateur": f"Statut {stat}", "Valeur": nb})
+            data.append({
+                "Catégorie": "Infirmiers",
+                "Indicateur": f"Statut {stat}",
+                "Valeur": nb
+            })
 
-    data.append({"Catégorie": "Adhésion", "Indicateur": "Nombre total de logs", "Valeur": len(adherence_logs)})
+    data.append({
+        "Catégorie": "Adhésion",
+        "Indicateur": "Nombre total de logs",
+        "Valeur": len(adherence_logs)
+    })
+
     if not adherence_logs.empty and "status" in adherence_logs.columns:
         for stat, nb in adherence_logs["status"].value_counts().items():
-            data.append({"Catégorie": "Adhésion", "Indicateur": f"Statut {stat}", "Valeur": nb})
+            data.append({
+                "Catégorie": "Adhésion",
+                "Indicateur": f"Statut {stat}",
+                "Valeur": nb
+            })
 
-    data.append({"Catégorie": "Traitements", "Indicateur": "Nombre total", "Valeur": len(treatments)})
+    data.append({
+        "Catégorie": "Traitements",
+        "Indicateur": "Nombre total",
+        "Valeur": len(treatments)
+    })
 
     df_export = pd.DataFrame(data)
 
     st.dataframe(df_export, use_container_width=True)
 
     csv = df_export.to_csv(index=False).encode("utf-8")
+
     st.download_button(
         label="Télécharger l'export anonymisé (CSV)",
         data=csv,
