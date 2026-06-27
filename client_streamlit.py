@@ -221,25 +221,35 @@ elif menu == "Export Anonymisé":
         ] if not treatments.empty else pd.DataFrame()
 
         export_data.append({
-            "patient_id": patient_id,
-            "gender": patient.get("gender"),
-            "birth_date": patient.get("birth_date"),
-            "onboarded": patient.get("onboarded"),
+    "patient_id": patient_id,
+    "gender": patient.get("gender"),
+    "birth_date": patient.get("birth_date"),
 
-            "nb_conditions": len(patient_conditions),
-            "condition_severity":
-                patient_conditions.iloc[-1]["severity"]
-                if not patient_conditions.empty and "severity" in patient_conditions.columns
-                else None,
+    "nb_conditions": len(patient_conditions),
+    "condition_severity":
+        patient_conditions.iloc[-1]["severity"]
+        if not patient_conditions.empty and "severity" in patient_conditions.columns
+        else None,
 
-            "nb_observations": len(patient_observations),
-            "observation_severity":
-                patient_observations.iloc[-1]["severity"]
-                if not patient_observations.empty and "severity" in patient_observations.columns
-                else None,
+    "nb_observations": len(patient_observations),
 
-            "nb_treatments": len(patient_treatments)
-        })
+    "observation_text":
+        " | ".join(patient_observations["text"].astype(str).tolist())
+        if not patient_observations.empty and "text" in patient_observations.columns
+        else None,
+
+    "observation_severity":
+        patient_observations.iloc[-1]["severity"]
+        if not patient_observations.empty and "severity" in patient_observations.columns
+        else None,
+
+    "nb_treatments": len(patient_treatments),
+
+    "treatments":
+        " | ".join(patient_treatments["text"].astype(str).tolist())
+        if not patient_treatments.empty and "text" in patient_treatments.columns
+        else None
+})
 
     df_export = pd.DataFrame(export_data)
 
