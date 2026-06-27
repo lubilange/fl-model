@@ -1,8 +1,15 @@
 import streamlit as st
 import pandas as pd
+import torch
+import requests
+import io
+import os
+import random
 import plotly.graph_objects as go
 
 from supabase import create_client, Client
+from authexample.task import Net
+from torch.utils.data import DataLoader, TensorDataset
 
 # =========================
 # CONFIG
@@ -10,108 +17,69 @@ from supabase import create_client, Client
 st.set_page_config(page_title="Dashboard", layout="wide")
 
 # =========================
-# STYLE CSS
+# 🎨 STYLE CSS (sidebar + cartes)
 # =========================
 st.markdown("""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600;700&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600;700&display=swap');
 
-html, body, [class*="css"] {
-    font-family: 'Poppins', sans-serif;
-}
+    html, body, [class*="css"] {
+        font-family: 'Poppins', sans-serif;
+    }
 
-.main {
-    background-color: #eef1f5;
-}
+    .main {
+        background-color: #eef1f5;
+    }
 
-section[data-testid="stSidebar"] {
-    background-color: #1e3c5a;
-}
+    section[data-testid="stSidebar"] {
+        background-color: #1e3c5a;
+    }
+    section[data-testid="stSidebar"] * {
+        color: white !important;
+    }
 
-section[data-testid="stSidebar"] * {
-    color: white !important;
-}
+    .card {
+        background: white;
+        padding: 20px;
+        border-radius: 12px;
+        text-align: center;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        margin-bottom: 10px;
+    }
 
-.card {
-    background: white;
-    padding: 20px;
-    border-radius: 12px;
-    text-align: center;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-    margin-bottom: 10px;
-}
-
-h1, h2, h3 {
-    color: #1e3c5a;
-}
+    h1, h2, h3 {
+        color: #1e3c5a;
+    }
 </style>
 """, unsafe_allow_html=True)
+
+
+SERVER_URL = "https://fl-model.onrender.com"
 
 # =========================
 # SUPABASE
 # =========================
 SUPABASE_URL = st.secrets["SUPABASE_URL"]
 SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
-
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 # =========================
 # SESSION STATE
 # =========================
-default_state = {
-    "model_loaded": False,
-    "trained": False,
-    "metrics": {},
-    "history": []
-}
-
-for key, value in default_state.items():
-    if key not in st.session_state:
-        st.session_state[key] = value
-
-# =========================
-# FUNCTIONS
-# =========================
-def safe_fetch(table_name):
-    try:
-        response = supabase.table(table_name).select("*").execute()
-        return response.data or []
-    except Exception as e:
-        st.warning(f"Impossible de charger la table '{table_name}' : {e}")
-        return []
-
-
-def has_column(df, column_name):
-    return not df.empty and column_name in df.columns
-
-
-def render_card(title, value):
-    st.markdown(
-        f"""
-        <div class="card">
-            <h3>{title}</h3>
-            <h2>{value}</h2>
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
-
-
-# =========================
-# LOAD DATA
-# =========================
-patients = pd.DataFrame(safe_fetch("patients"))
-conditions = pd.DataFrame(safe_fetch("conditions"))
-observations = pd.DataFrame(safe_fetch("observations"))
-treatments = pd.DataFrame(safe_fetch("treatments"))
-adherence_logs = pd.DataFrame(safe_fetch("adherence_logs"))
-nurses = pd.DataFrame(safe_fetch("nurses"))
+if "model_loaded" not in st.session_state:
+    st.session_state["model_loaded"] = False
+if "trained" not in st.session_state:
+    st.session_state["trained"] = False
+if "metrics" not in st.session_state:
+    st.session_state["metrics"] = {}
+if "history" not in st.session_state:
+    st.session_state["history"] = []
 
 # =========================
 # MENU
 # =========================
 menu = st.sidebar.radio(
-    "Menu",
+    " Menu",
     [
         "Dashboard Clinique",
         "Dashboard Recherche",
@@ -119,191 +87,142 @@ menu = st.sidebar.radio(
     ]
 )
 
+# =========================
+# SUPABASE SAFE FETCH
+# =========================
+def safe_fetch(table):
+    try:
+        return supabase.table(table).select("*").execute().data or []
+    except Exception as e:
+        st.warning(f"Erreur de chargement table {table}: {e}")
+        return []
+
+patients = pd.DataFrame(safe_fetch("patients"))
+conditions = pd.DataFrame(safe_fetch("conditions"))
+observations = pd.DataFrame(safe_fetch("observations"))
+treatments = pd.DataFrame(safe_fetch("treatments"))
+adherence_logs = pd.DataFrame(safe_fetch("adherence_logs"))
+nurses = pd.DataFrame(safe_fetch("nurses"))
+
 # =========================================================
-# DASHBOARD CLINIQUE
+# 📊 DASHBOARD CLINIQUE
 # =========================================================
 if menu == "Dashboard Clinique":
     st.subheader("🏥 Vue clinique en temps réel")
 
     col1, col2, col3 = st.columns(3)
-
     with col1:
-        render_card("👥 Patients", len(patients))
-
+        st.markdown(f'<div class="card"><h3>👥 Patients</h3><h2>{len(patients)}</h2></div>', unsafe_allow_html=True)
     with col2:
-        render_card("🧾 Conditions FHIR", len(conditions))
-
+        st.markdown(f'<div class="card"><h3>🧾 Conditions FHIR</h3><h2>{len(conditions)}</h2></div>', unsafe_allow_html=True)
     with col3:
-        render_card("🩺 Symptômes", len(observations))
+        st.markdown(f'<div class="card"><h3>🩺 Symptômes</h3><h2>{len(observations)}</h2></div>', unsafe_allow_html=True)
 
     st.divider()
 
     st.markdown("### 🚨 Niveau d'alerte")
-    if has_column(conditions, "severity"):
+    if not conditions.empty and "severity" in conditions.columns:
         st.bar_chart(conditions["severity"].value_counts())
     else:
-        st.info("Aucune donnée de sévérité disponible pour les conditions.")
+        st.info("Aucune donnée de sévérité disponible")
 
     st.divider()
 
     st.markdown("### 📈 Répartition des symptômes")
-    if has_column(observations, "severity"):
-        symptom_dist = observations["severity"].value_counts()
-        st.bar_chart(symptom_dist)
+    if not observations.empty and "severity" in observations.columns:
+        trend = observations["severity"].value_counts().reset_index()
+        trend.columns = ["severity", "count"]
+        st.bar_chart(trend.set_index("severity"))
     else:
-        st.info("Aucune donnée de sévérité disponible pour les symptômes.")
+        st.info("Aucune donnée de symptômes disponible")
 
     st.divider()
 
     st.markdown("### 👩‍⚕️ Support infirmier")
-    if has_column(nurses, "status"):
+    if not nurses.empty and "status" in nurses.columns:
         st.bar_chart(nurses["status"].value_counts())
     else:
-        st.info("Aucun statut infirmier disponible.")
+        st.info("Aucun statut infirmier disponible")
 
     st.divider()
 
-    st.markdown("### Cas de simulations")
-
+    st.markdown("### cas de simulations")
     sim = pd.DataFrame([
         {"glycémie": 4.5, "niveau": "normal"},
         {"glycémie": 8.2, "niveau": "élevé"},
         {"glycémie": 6.8, "niveau": "modéré"}
     ])
-
-    sim["prediction"] = sim["glycémie"].apply(
-        lambda x: "élevé" if x > 7 else "normal"
-    )
-
-    st.dataframe(sim, use_container_width=True)
+    sim["prediction"] = sim["glycémie"].apply(lambda x: "élevé" if x > 7 else "normal")
+    st.dataframe(sim)
 
 # =========================================================
-# DASHBOARD RECHERCHE
+# 📈 DASHBOARD RECHERCHE
 # =========================================================
 elif menu == "Dashboard Recherche":
-    st.subheader("📈 Graphique pour Recherche Analytique")
+    st.subheader("Graphique pour Recherche Analytique")
 
     st.markdown("### Répartition patients")
-
-    if has_column(patients, "gender"):
+    if not patients.empty and "gender" in patients.columns:
         gender_dist = patients["gender"].value_counts()
         st.bar_chart(gender_dist)
-        st.write("Distribution des patients par genre.")
+        st.write("Distribution patients par genre")
     else:
-        st.info("Aucune donnée de genre disponible.")
+        st.info("Aucune donnée patient disponible")
 
     st.markdown("### Répartition des risques")
-
-    if has_column(conditions, "severity"):
+    if not conditions.empty and "severity" in conditions.columns:
         risk_dist = conditions["severity"].value_counts()
-
         fig = go.Figure()
         fig.add_trace(go.Pie(
             labels=risk_dist.index,
-            values=risk_dist.values,
-            hole=0.3
+            values=risk_dist.values
         ))
-
-        fig.update_layout(
-            title="Répartition des risques par sévérité"
-        )
-
         st.plotly_chart(fig, use_container_width=True)
     else:
-        st.info("Aucune donnée de risque disponible.")
+        st.info("Aucune condition disponible")
 
 # =========================================================
-# EXPORT ANONYMISÉ
+# 🔬 EXPORT ANONYMISÉ
 # =========================================================
 elif menu == "Export Anonymisé":
-    st.subheader("🔬 Export anonymisé pour analyses")
+    st.subheader("Export anonymisé pour analyses")
 
     data = []
 
-    data.append({
-        "Catégorie": "Patients",
-        "Indicateur": "Nombre total",
-        "Valeur": len(patients)
-    })
-
-    if has_column(patients, "gender"):
+    data.append({"Catégorie": "Patients", "Indicateur": "Nombre total", "Valeur": len(patients)})
+    if not patients.empty and "gender" in patients.columns:
         for genre, nb in patients["gender"].value_counts().items():
-            data.append({
-                "Catégorie": "Patients",
-                "Indicateur": f"Genre {genre}",
-                "Valeur": nb
-            })
+            data.append({"Catégorie": "Patients", "Indicateur": f"Genre {genre}", "Valeur": nb})
 
-    data.append({
-        "Catégorie": "Observations",
-        "Indicateur": "Nombre total",
-        "Valeur": len(observations)
-    })
-
-    if has_column(observations, "severity"):
+    data.append({"Catégorie": "Observations", "Indicateur": "Nombre total", "Valeur": len(observations)})
+    if not observations.empty and "severity" in observations.columns:
         for sev, nb in observations["severity"].value_counts().items():
-            data.append({
-                "Catégorie": "Observations",
-                "Indicateur": f"Sévérité {sev}",
-                "Valeur": nb
-            })
+            data.append({"Catégorie": "Observations", "Indicateur": f"Sévérité {sev}", "Valeur": nb})
 
-    data.append({
-        "Catégorie": "Conditions",
-        "Indicateur": "Nombre total",
-        "Valeur": len(conditions)
-    })
-
-    if has_column(conditions, "severity"):
+    data.append({"Catégorie": "Conditions", "Indicateur": "Nombre total", "Valeur": len(conditions)})
+    if not conditions.empty and "severity" in conditions.columns:
         for sev, nb in conditions["severity"].value_counts().items():
-            data.append({
-                "Catégorie": "Conditions",
-                "Indicateur": f"Sévérité {sev}",
-                "Valeur": nb
-            })
+            data.append({"Catégorie": "Conditions", "Indicateur": f"Sévérité {sev}", "Valeur": nb})
 
-    data.append({
-        "Catégorie": "Infirmiers",
-        "Indicateur": "Nombre total",
-        "Valeur": len(nurses)
-    })
-
-    if has_column(nurses, "status"):
+    data.append({"Catégorie": "Infirmiers", "Indicateur": "Nombre total", "Valeur": len(nurses)})
+    if not nurses.empty and "status" in nurses.columns:
         for stat, nb in nurses["status"].value_counts().items():
-            data.append({
-                "Catégorie": "Infirmiers",
-                "Indicateur": f"Statut {stat}",
-                "Valeur": nb
-            })
+            data.append({"Catégorie": "Infirmiers", "Indicateur": f"Statut {stat}", "Valeur": nb})
 
-    data.append({
-        "Catégorie": "Adhésion",
-        "Indicateur": "Nombre total de logs",
-        "Valeur": len(adherence_logs)
-    })
-
-    if has_column(adherence_logs, "status"):
+    data.append({"Catégorie": "Adhésion", "Indicateur": "Nombre total de logs", "Valeur": len(adherence_logs)})
+    if not adherence_logs.empty and "status" in adherence_logs.columns:
         for stat, nb in adherence_logs["status"].value_counts().items():
-            data.append({
-                "Catégorie": "Adhésion",
-                "Indicateur": f"Statut {stat}",
-                "Valeur": nb
-            })
+            data.append({"Catégorie": "Adhésion", "Indicateur": f"Statut {stat}", "Valeur": nb})
 
-    data.append({
-        "Catégorie": "Traitements",
-        "Indicateur": "Nombre total",
-        "Valeur": len(treatments)
-    })
+    data.append({"Catégorie": "Traitements", "Indicateur": "Nombre total", "Valeur": len(treatments)})
 
     df_export = pd.DataFrame(data)
 
     st.dataframe(df_export, use_container_width=True)
 
     csv = df_export.to_csv(index=False).encode("utf-8")
-
     st.download_button(
-        label="Télécharger l'export anonymisé CSV",
+        label="Télécharger l'export anonymisé (CSV)",
         data=csv,
         file_name="export_anonymise.csv",
         mime="text/csv"
