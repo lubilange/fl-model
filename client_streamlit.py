@@ -192,96 +192,64 @@ elif menu == "Dashboard Recherche":
 # =========================================================
 # 🔬 EXPORT ANONYMISÉ
 # =========================================================
+# =========================================================
+# 🔬 EXPORT ANONYMISÉ
+# =========================================================
 elif menu == "Export Anonymisé":
     st.subheader("Export anonymisé pour analyses")
 
-    data = []
+    if patients.empty:
+        st.info("Aucun patient disponible")
+        st.stop()
 
-    data.append({
-        "Catégorie": "Patients",
-        "Indicateur": "Nombre total",
-        "Valeur": len(patients)
-    })
+    export_data = []
 
-    if not patients.empty and "gender" in patients.columns:
-        for genre, nb in patients["gender"].value_counts().items():
-            data.append({
-                "Catégorie": "Patients",
-                "Indicateur": f"Genre {genre}",
-                "Valeur": nb
-            })
+    for _, patient in patients.iterrows():
 
-    data.append({
-        "Catégorie": "Observations",
-        "Indicateur": "Nombre total",
-        "Valeur": len(observations)
-    })
+        patient_id = patient["id"]
 
-    if not observations.empty and "severity" in observations.columns:
-        for sev, nb in observations["severity"].value_counts().items():
-            data.append({
-                "Catégorie": "Observations",
-                "Indicateur": f"Sévérité {sev}",
-                "Valeur": nb
-            })
+        patient_conditions = conditions[
+            conditions["patient_id"] == patient_id
+        ] if not conditions.empty else pd.DataFrame()
 
-    data.append({
-        "Catégorie": "Conditions",
-        "Indicateur": "Nombre total",
-        "Valeur": len(conditions)
-    })
+        patient_observations = observations[
+            observations["patient_id"] == patient_id
+        ] if not observations.empty else pd.DataFrame()
 
-    if not conditions.empty and "severity" in conditions.columns:
-        for sev, nb in conditions["severity"].value_counts().items():
-            data.append({
-                "Catégorie": "Conditions",
-                "Indicateur": f"Sévérité {sev}",
-                "Valeur": nb
-            })
+        patient_treatments = treatments[
+            treatments["patient_id"] == patient_id
+        ] if not treatments.empty else pd.DataFrame()
 
-    data.append({
-        "Catégorie": "Infirmiers",
-        "Indicateur": "Nombre total",
-        "Valeur": len(nurses)
-    })
+        export_data.append({
+            "patient_id": patient_id,
+            "gender": patient.get("gender"),
+            "birth_date": patient.get("birth_date"),
+            "onboarded": patient.get("onboarded"),
 
-    if not nurses.empty and "status" in nurses.columns:
-        for stat, nb in nurses["status"].value_counts().items():
-            data.append({
-                "Catégorie": "Infirmiers",
-                "Indicateur": f"Statut {stat}",
-                "Valeur": nb
-            })
+            "nb_conditions": len(patient_conditions),
+            "condition_severity":
+                patient_conditions.iloc[-1]["severity"]
+                if not patient_conditions.empty and "severity" in patient_conditions.columns
+                else None,
 
-    data.append({
-        "Catégorie": "Adhésion",
-        "Indicateur": "Nombre total de logs",
-        "Valeur": len(adherence_logs)
-    })
+            "nb_observations": len(patient_observations),
+            "observation_severity":
+                patient_observations.iloc[-1]["severity"]
+                if not patient_observations.empty and "severity" in patient_observations.columns
+                else None,
 
-    if not adherence_logs.empty and "status" in adherence_logs.columns:
-        for stat, nb in adherence_logs["status"].value_counts().items():
-            data.append({
-                "Catégorie": "Adhésion",
-                "Indicateur": f"Statut {stat}",
-                "Valeur": nb
-            })
+            "nb_treatments": len(patient_treatments)
+        })
 
-    data.append({
-        "Catégorie": "Traitements",
-        "Indicateur": "Nombre total",
-        "Valeur": len(treatments)
-    })
-
-    df_export = pd.DataFrame(data)
+    df_export = pd.DataFrame(export_data)
 
     st.dataframe(df_export, use_container_width=True)
 
     csv = df_export.to_csv(index=False).encode("utf-8")
 
     st.download_button(
-        label="Télécharger l'export anonymisé (CSV)",
-        data=csv,
-        file_name="export_anonymise.csv",
-        mime="text/csv"
+        "Télécharger l'export anonymisé (CSV)",
+        csv,
+        "export_anonymise.csv",
+        "text/csv"
     )
