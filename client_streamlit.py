@@ -30,6 +30,21 @@ st.markdown("""
     section[data-testid="stSidebar"] * {
         color: white !important;
     }
+    /* Texte saisi dans les champs */
+    section[data-testid="stSidebar"] input {
+        color: black !important;
+        background-color: white !important;
+    }
+    
+    /* Placeholder */
+    section[data-testid="stSidebar"] input::placeholder {
+        color: gray !important;
+    }
+    
+    /* Curseur */
+    section[data-testid="stSidebar"] input {
+        caret-color: black !important;
+    }
 
     .card {
         background: white;
