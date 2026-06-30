@@ -147,7 +147,7 @@ def filter_by_admin_location(df):
     if df.empty:
         return df
 
-    required_cols = {"country_id", "province_id"}
+    required_cols = {"country", "province"}
 
     if not required_cols.issubset(df.columns):
         st.error(
@@ -159,13 +159,13 @@ def filter_by_admin_location(df):
 
     if admin_country_code == "RDC":
         return df[
-            (df["country_id"] == admin_country_id) &
-            (df["province_id"] == admin_province_id)
+            (df["country"] == admin_country_id) &
+            (df["province"] == admin_province_id)
         ]
 
     return df[
-        (df["country_id"] == admin_country_id) &
-        (df["province_id"].isna())
+        (df["country"] == admin_country_id) &
+        (df["province"].isna())
     ]
 
 patients = filter_by_admin_location(patients)
