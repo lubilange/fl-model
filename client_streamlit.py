@@ -13,51 +13,46 @@ st.set_page_config(page_title="Dashboard", layout="wide")
 # =========================
 st.markdown("""
 <style>
-    @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600;700&display=swap');
 
-    html, body, [class*="css"] {
-        font-family: 'Poppins', sans-serif;
-    }
+html, body, [class*="css"] {
+    font-family: 'Poppins', sans-serif;
+}
 
-    .main {
-        background-color: #eef1f5;
-    }
+.main {
+    background-color: #eef1f5;
+}
 
-    section[data-testid="stSidebar"] {
-        background-color: #1e3c5a;
-    }
+section[data-testid="stSidebar"] {
+    background-color: #1e3c5a;
+}
 
-    section[data-testid="stSidebar"] * {
-        color: white !important;
-    }
-    /* Texte saisi dans les champs */
-    section[data-testid="stSidebar"] input {
-        color: black !important;
-        background-color: white !important;
-    }
-    
-    /* Placeholder */
-    section[data-testid="stSidebar"] input::placeholder {
-        color: gray !important;
-    }
-    
-    /* Curseur */
-    section[data-testid="stSidebar"] input {
-        caret-color: black !important;
-    }
+section[data-testid="stSidebar"] * {
+    color: white !important;
+}
 
-    .card {
-        background: white;
-        padding: 20px;
-        border-radius: 12px;
-        text-align: center;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-        margin-bottom: 10px;
-    }
+section[data-testid="stSidebar"] input {
+    color: black !important;
+    background-color: white !important;
+    caret-color: black !important;
+}
 
-    h1, h2, h3 {
-        color: #1e3c5a;
-    }
+section[data-testid="stSidebar"] input::placeholder {
+    color: gray !important;
+}
+
+.card {
+    background: white;
+    padding: 20px;
+    border-radius: 12px;
+    text-align: center;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+    margin-bottom: 10px;
+}
+
+h1, h2, h3 {
+    color: #1e3c5a;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -66,7 +61,19 @@ st.markdown("""
 # =========================
 SUPABASE_URL = st.secrets["SUPABASE_URL"]
 SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
+
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+
+# =========================
+# FETCH SAFE
+# =========================
+def safe_fetch(table):
+    try:
+        return supabase.table(table).select("*").execute().data or []
+    except Exception as e:
+        st.warning(f"Erreur de chargement table {table}: {e}")
+        return []
+
 # =========================
 # LOGIN ADMIN
 # =========================
@@ -79,12 +86,16 @@ if not admin_email or not admin_password:
     st.warning("Veuillez entrer vos identifiants admin.")
     st.stop()
 
-admin_user = supabase.table("admins") \
-    .select("*, countries(name, code), provinces(name)") \
-    .eq("email", admin_email) \
-    .eq("password", admin_password) \
-    .maybe_single() \
-    .execute().data
+try:
+    admin_user = supabase.table("admins") \
+        .select("*, countries(name, code), provinces(name)") \
+        .eq("email", admin_email) \
+        .eq("password", admin_password) \
+        .maybe_single() \
+        .execute().data
+except Exception as e:
+    st.error(f"Erreur de connexion admin : {e}")
+    st.stop()
 
 if not admin_user:
     st.error("Accès refusé : admin non reconnu.")
@@ -92,13 +103,21 @@ if not admin_user:
 
 admin_country_id = admin_user.get("country_id")
 admin_province_id = admin_user.get("province_id")
-admin_country_code = admin_user.get("countries", {}).get("code")
+admin_country = admin_user.get("countries") or {}
+admin_province = admin_user.get("provinces") or {}
+
+admin_country_code = admin_country.get("code")
+admin_country_name = admin_country.get("name")
+admin_province_name = admin_province.get("name")
 
 st.sidebar.success(f"Connecté : {admin_user.get('name')}")
-st.sidebar.write(f"Pays : {admin_user.get('countries', {}).get('name')}")
-st.sidebar.write(
-    f"Province : {admin_user.get('provinces', {}).get('name') or 'Hors RDC'}"
-)
+st.sidebar.write(f"Pays : {admin_country_name}")
+
+if admin_country_code == "RDC":
+    st.sidebar.write(f"Province : {admin_province_name}")
+else:
+    st.sidebar.write("Zone : Hors RDC")
+
 # =========================
 # MENU
 # =========================
@@ -112,44 +131,48 @@ menu = st.sidebar.radio(
 )
 
 # =========================
-# SUPABASE FETCH
+# CHARGEMENT DES TABLES
 # =========================
-def safe_fetch(table):
-    try:
-        return supabase.table(table).select("*").execute().data or []
-    except Exception as e:
-        st.warning(f"Erreur de chargement table {table}: {e}")
-        return []
-
 patients = pd.DataFrame(safe_fetch("patients"))
 conditions = pd.DataFrame(safe_fetch("conditions"))
 observations = pd.DataFrame(safe_fetch("observations"))
 treatments = pd.DataFrame(safe_fetch("treatments"))
 adherence_logs = pd.DataFrame(safe_fetch("adherence_logs"))
 nurses = pd.DataFrame(safe_fetch("nurses"))
-# =========================
-# =========================
-# FILTRAGE PAR ADMIN
-# =========================
 
-# Patients
-if not patients.empty:
+# =========================
+# FILTRE ADMIN
+# =========================
+def filter_by_admin_location(df):
+    if df.empty:
+        return df
+
+    required_cols = {"country_id", "province_id"}
+
+    if not required_cols.issubset(df.columns):
+        st.error(
+            "Erreur : les colonnes country_id et province_id sont absentes "
+            "dans une table à filtrer."
+        )
+        st.write("Colonnes disponibles :", df.columns.tolist())
+        st.stop()
+
     if admin_country_code == "RDC":
-        # Admin RDC : uniquement sa province
-        patients = patients[
-            (patients["country_id"] == admin_country_id) &
-            (patients["province_id"] == admin_province_id)
+        return df[
+            (df["country_id"] == admin_country_id) &
+            (df["province_id"] == admin_province_id)
         ]
-    else:
-        # Admin Hors RDC : uniquement hors RDC
-        patients = patients[
-            (patients["country_id"] == admin_country_id) &
-            (patients["province_id"].isna())
-        ]
+
+    return df[
+        (df["country_id"] == admin_country_id) &
+        (df["province_id"].isna())
+    ]
+
+patients = filter_by_admin_location(patients)
+nurses = filter_by_admin_location(nurses)
 
 patient_ids = patients["id"].tolist() if not patients.empty and "id" in patients.columns else []
 
-# Données liées aux patients filtrés
 if not observations.empty and "patient_id" in observations.columns:
     observations = observations[observations["patient_id"].isin(patient_ids)]
 
@@ -162,18 +185,6 @@ if not treatments.empty and "patient_id" in treatments.columns:
 if not adherence_logs.empty and "patient_id" in adherence_logs.columns:
     adherence_logs = adherence_logs[adherence_logs["patient_id"].isin(patient_ids)]
 
-# Nurses
-if not nurses.empty:
-    if admin_country_code == "RDC":
-        nurses = nurses[
-            (nurses["country_id"] == admin_country_id) &
-            (nurses["province_id"] == admin_province_id)
-        ]
-    else:
-        nurses = nurses[
-            (nurses["country_id"] == admin_country_id) &
-            (nurses["province_id"].isna())
-        ]
 # =========================
 # DASHBOARD CLINIQUE
 # =========================
@@ -206,7 +217,7 @@ if menu == "Dashboard Clinique":
     if not conditions.empty and "severity" in conditions.columns:
         st.bar_chart(conditions["severity"].value_counts())
     else:
-        st.info("Aucune donnée de sévérité disponible pour votre localisation.")
+        st.info("Aucune donnée de sévérité disponible pour cette zone.")
 
     st.divider()
 
@@ -216,7 +227,7 @@ if menu == "Dashboard Clinique":
         trend.columns = ["severity", "count"]
         st.bar_chart(trend.set_index("severity"))
     else:
-        st.info("Aucune donnée de symptômes disponible pour votre localisation.")
+        st.info("Aucune donnée de symptômes disponible pour cette zone.")
 
     st.divider()
 
@@ -224,7 +235,7 @@ if menu == "Dashboard Clinique":
     if not nurses.empty and "status" in nurses.columns:
         st.bar_chart(nurses["status"].value_counts())
     else:
-        st.info("Aucun statut infirmier disponible pour votre localisation.")
+        st.info("Aucun statut infirmier disponible pour cette zone.")
 
 # =========================
 # DASHBOARD RECHERCHE
@@ -237,7 +248,7 @@ elif menu == "Dashboard Recherche":
         gender_dist = patients["gender"].value_counts()
         st.bar_chart(gender_dist)
     else:
-        st.info("Aucune donnée patient disponible pour votre localisation.")
+        st.info("Aucune donnée patient disponible pour cette zone.")
 
     st.markdown("### Répartition des risques")
     if not conditions.empty and "severity" in conditions.columns:
@@ -251,7 +262,7 @@ elif menu == "Dashboard Recherche":
 
         st.plotly_chart(fig, use_container_width=True)
     else:
-        st.info("Aucune condition disponible pour votre localisation.")
+        st.info("Aucune condition disponible pour cette zone.")
 
 # =========================
 # EXPORT ANONYMISÉ
@@ -260,7 +271,7 @@ elif menu == "Export Anonymisé":
     st.subheader("Export anonymisé pour analyses")
 
     if patients.empty:
-        st.info("Aucun patient disponible pour votre localisation.")
+        st.info("Aucun patient disponible pour cette zone.")
         st.stop()
 
     export_data = []
@@ -284,8 +295,8 @@ elif menu == "Export Anonymisé":
             "patient_id": patient_id,
             "gender": patient.get("gender"),
             "birth_date": patient.get("birth_date"),
-            "country": patient.get("country"),
-            "province": patient.get("province"),
+            "country_id": patient.get("country_id"),
+            "province_id": patient.get("province_id"),
 
             "nb_conditions": len(patient_conditions),
             "condition_severity":
@@ -298,6 +309,7 @@ elif menu == "Export Anonymisé":
                 " | ".join(patient_observations["text"].astype(str).tolist())
                 if not patient_observations.empty and "text" in patient_observations.columns
                 else None,
+
             "observation_severity":
                 patient_observations.iloc[-1]["severity"]
                 if not patient_observations.empty and "severity" in patient_observations.columns
