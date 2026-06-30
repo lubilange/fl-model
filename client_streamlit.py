@@ -87,12 +87,15 @@ if not admin_email or not admin_password:
     st.stop()
 
 try:
-    admin_user = supabase.table("admins") \
-        .select("*, countries(name, code), provinces(name)") \
-        .eq("email", admin_email) \
-        .eq("password", admin_password) \
-        .maybe_single() \
-        .execute().data
+    admin_user = (
+        supabase.table("admins")
+        .select("*, countries(name, code), provinces(name)")
+        .eq("email", admin_email)
+        .eq("password", admin_password)
+        .maybe_single()
+        .execute()
+        .data
+    )
 except Exception as e:
     st.error(f"Erreur de connexion admin : {e}")
     st.stop()
@@ -101,8 +104,6 @@ if not admin_user:
     st.error("Accès refusé : admin non reconnu.")
     st.stop()
 
-admin_country_id = admin_user.get("country_id")
-admin_province_id = admin_user.get("province_id")
 admin_country = admin_user.get("countries") or {}
 admin_province = admin_user.get("provinces") or {}
 
@@ -143,33 +144,30 @@ nurses = pd.DataFrame(safe_fetch("nurses"))
 # =========================
 # FILTRE ADMIN
 # =========================
-def filter_by_admin_location(df):
+def filter_by_admin_location(df, table_name):
     if df.empty:
         return df
 
     required_cols = {"country", "province"}
 
     if not required_cols.issubset(df.columns):
-        st.error(
-            "Erreur : les colonnes country_id et province_id sont absentes "
-            "dans une table à filtrer."
-        )
+        st.error(f"Erreur : la table {table_name} doit avoir les colonnes country et province.")
         st.write("Colonnes disponibles :", df.columns.tolist())
         st.stop()
 
     if admin_country_code == "RDC":
         return df[
-            (df["country"] == admin_country_id) &
-            (df["province"] == admin_province_id)
+            (df["country"] == "RDC") &
+            (df["province"] == admin_province_name)
         ]
 
     return df[
-        (df["country"] == admin_country_id) &
+        (df["country"] != "RDC") |
         (df["province"].isna())
     ]
 
-patients = filter_by_admin_location(patients)
-nurses = filter_by_admin_location(nurses)
+patients = filter_by_admin_location(patients, "patients")
+nurses = filter_by_admin_location(nurses, "nurses")
 
 patient_ids = patients["id"].tolist() if not patients.empty and "id" in patients.columns else []
 
@@ -295,8 +293,8 @@ elif menu == "Export Anonymisé":
             "patient_id": patient_id,
             "gender": patient.get("gender"),
             "birth_date": patient.get("birth_date"),
-            "country_id": patient.get("country_id"),
-            "province_id": patient.get("province_id"),
+            "country": patient.get("country"),
+            "province": patient.get("province"),
 
             "nb_conditions": len(patient_conditions),
             "condition_severity":
