@@ -37,10 +37,6 @@ section[data-testid="stSidebar"] input {
     caret-color: black !important;
 }
 
-section[data-testid="stSidebar"] input::placeholder {
-    color: gray !important;
-}
-
 .card {
     background: white;
     padding: 20px;
@@ -75,34 +71,47 @@ def safe_fetch(table):
         return []
 
 # =========================
-# LOGIN ADMIN
+# SESSION LOGIN / LOGOUT
 # =========================
-st.sidebar.markdown("## Connexion admin")
+if "admin_user" not in st.session_state:
+    st.session_state.admin_user = None
 
-admin_email = st.sidebar.text_input("Email admin")
-admin_password = st.sidebar.text_input("Mot de passe", type="password")
+if st.session_state.admin_user is None:
+    st.sidebar.markdown("## Connexion")
 
-if not admin_email or not admin_password:
-    st.warning("Veuillez entrer vos identifiants admin.")
+    admin_email = st.sidebar.text_input("Email")
+    admin_password = st.sidebar.text_input("Mot de passe", type="password")
+
+    if st.sidebar.button("Se connecter"):
+        if not admin_email or not admin_password:
+            st.sidebar.error("Veuillez entrer vos identifiants.")
+            st.stop()
+
+        try:
+            admin_user = (
+                supabase.table("admins")
+                .select("*, countries(name, code), provinces(name)")
+                .eq("email", admin_email)
+                .eq("password", admin_password)
+                .maybe_single()
+                .execute()
+                .data
+            )
+        except Exception as e:
+            st.sidebar.error(f"Erreur de connexion : {e}")
+            st.stop()
+
+        if not admin_user:
+            st.sidebar.error("Identifiants incorrects.")
+            st.stop()
+
+        st.session_state.admin_user = admin_user
+        st.rerun()
+
+    st.warning("Veuillez vous connecter.")
     st.stop()
 
-try:
-    admin_user = (
-        supabase.table("admins")
-        .select("*, countries(name, code), provinces(name)")
-        .eq("email", admin_email)
-        .eq("password", admin_password)
-        .maybe_single()
-        .execute()
-        .data
-    )
-except Exception as e:
-    st.error(f"Erreur de connexion admin : {e}")
-    st.stop()
-
-if not admin_user:
-    st.error("Accès refusé : admin non reconnu.")
-    st.stop()
+admin_user = st.session_state.admin_user
 
 admin_country = admin_user.get("countries") or {}
 admin_province = admin_user.get("provinces") or {}
@@ -118,6 +127,10 @@ if admin_country_code == "RDC":
     st.sidebar.write(f"Province : {admin_province_name}")
 else:
     st.sidebar.write("Zone : Hors RDC")
+
+if st.sidebar.button("Se déconnecter"):
+    st.session_state.admin_user = None
+    st.rerun()
 
 # =========================
 # MENU
