@@ -341,4 +341,4 @@ nurses = filter_by_admin_location(nurses, "nurses")
 
 if not patients.empty and "gender" in patients.columns:
     patients["gender_clean"] = patients["gender"].apply(normalize_gender)
-    patients = patients[patients["gender_clean"].isin(["F
+    patients = patients[patients["gender_clean"].isin(["F", "H"])]
