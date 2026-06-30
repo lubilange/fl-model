@@ -49,6 +49,34 @@ section[data-testid="stSidebar"] input {
 h1, h2, h3 {
     color: #1e3c5a;
 }
+
+/* Bouton Se connecter */
+div.stButton > button[kind="secondary"] {
+    background-color: #28a745;
+    color: white;
+    border-radius: 8px;
+    border: none;
+    font-weight: bold;
+}
+
+div.stButton > button[kind="secondary"]:hover {
+    background-color: #218838;
+    color: white;
+}
+
+/* Bouton Se déconnecter */
+.logout-btn button {
+    background-color: #dc3545 !important;
+    color: white !important;
+    border: none !important;
+    border-radius: 8px !important;
+    font-weight: bold !important;
+}
+
+.logout-btn button:hover {
+    background-color: #b52a37 !important;
+    color: white !important;
+}
 </style>
 """, unsafe_allow_html=True)
 
