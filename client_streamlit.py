@@ -79,22 +79,26 @@ if not admin_email or not admin_password:
     st.warning("Veuillez entrer vos identifiants admin.")
     st.stop()
 
-try:
-    admin_user = supabase.table("admins") \
-        .select("*") \
-        .eq("email", admin_email) \
-        .eq("password", admin_password) \
-        .maybe_single() \
-        .execute().data
-except Exception as e:
-    st.error(f"Erreur connexion : {e}")
-    st.stop()
+admin_user = supabase.table("admins") \
+    .select("*, countries(name, code), provinces(name)") \
+    .eq("email", admin_email) \
+    .eq("password", admin_password) \
+    .maybe_single() \
+    .execute().data
 
 if not admin_user:
     st.error("Accès refusé : admin non reconnu.")
     st.stop()
 
+admin_country_id = admin_user.get("country_id")
+admin_province_id = admin_user.get("province_id")
+admin_country_code = admin_user.get("countries", {}).get("code")
+
 st.sidebar.success(f"Connecté : {admin_user.get('name')}")
+st.sidebar.write(f"Pays : {admin_user.get('countries', {}).get('name')}")
+st.sidebar.write(
+    f"Province : {admin_user.get('provinces', {}).get('name') or 'Hors RDC'}"
+)
 # =========================
 # MENU
 # =========================
@@ -124,26 +128,28 @@ treatments = pd.DataFrame(safe_fetch("treatments"))
 adherence_logs = pd.DataFrame(safe_fetch("adherence_logs"))
 nurses = pd.DataFrame(safe_fetch("nurses"))
 # =========================
+# =========================
 # FILTRAGE PAR ADMIN
 # =========================
-admin_country_id = admin_user.get("country_id")
-admin_province_id = admin_user.get("province_id")
 
 # Patients
-if not patients.empty and "country_id" in patients.columns:
-    patients = patients[patients["country_id"] == admin_country_id]
-
-    # Admin RDC = filtrage par province
-    if admin_province_id is not None and "province_id" in patients.columns:
-        patients = patients[patients["province_id"] == admin_province_id]
-
-    # Admin Hors RDC = province_id NULL
-    if admin_province_id is None and "province_id" in patients.columns:
-        patients = patients[patients["province_id"].isna()]
+if not patients.empty:
+    if admin_country_code == "RDC":
+        # Admin RDC : uniquement sa province
+        patients = patients[
+            (patients["country_id"] == admin_country_id) &
+            (patients["province_id"] == admin_province_id)
+        ]
+    else:
+        # Admin Hors RDC : uniquement hors RDC
+        patients = patients[
+            (patients["country_id"] == admin_country_id) &
+            (patients["province_id"].isna())
+        ]
 
 patient_ids = patients["id"].tolist() if not patients.empty and "id" in patients.columns else []
 
-# Tables liées aux patients
+# Données liées aux patients filtrés
 if not observations.empty and "patient_id" in observations.columns:
     observations = observations[observations["patient_id"].isin(patient_ids)]
 
@@ -157,14 +163,17 @@ if not adherence_logs.empty and "patient_id" in adherence_logs.columns:
     adherence_logs = adherence_logs[adherence_logs["patient_id"].isin(patient_ids)]
 
 # Nurses
-if not nurses.empty and "country_id" in nurses.columns:
-    nurses = nurses[nurses["country_id"] == admin_country_id]
-
-    if admin_province_id is not None and "province_id" in nurses.columns:
-        nurses = nurses[nurses["province_id"] == admin_province_id]
-
-    if admin_province_id is None and "province_id" in nurses.columns:
-        nurses = nurses[nurses["province_id"].isna()]
+if not nurses.empty:
+    if admin_country_code == "RDC":
+        nurses = nurses[
+            (nurses["country_id"] == admin_country_id) &
+            (nurses["province_id"] == admin_province_id)
+        ]
+    else:
+        nurses = nurses[
+            (nurses["country_id"] == admin_country_id) &
+            (nurses["province_id"].isna())
+        ]
 # =========================
 # DASHBOARD CLINIQUE
 # =========================
